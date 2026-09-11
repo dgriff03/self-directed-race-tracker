@@ -91,6 +91,139 @@ export function speed(r: Race) {
   const elapsed = (r.fix.at - r.startAt) / 3600000;
   return elapsed > 0 ? Math.min(25, r.progressKm / elapsed) : 0;
 }
+export function paceEstimate(
+  r: Race,
+  windowMs = 40 * 60 * 1000,
+): { kmh: number; source: "rolling" | "overall" } {
+  const overall = speed(r);
+  const stabilize = (
+    raw: number,
+  ): { kmh: number; source: "rolling" | "overall" } =>
+    raw > 0
+      ? { kmh: Math.min(25, Math.max(raw, overall * 0.5)), source: "rolling" }
+      : { kmh: overall, source: "overall" };
+  if (!r.fix) return { kmh: 0, source: "overall" };
+  const nowFix = r.fix;
+  const track = r.track ?? [];
+  if (track.length >= 2) {
+    const cutoff = nowFix.at - windowMs;
+    const recent = track.filter(
+      (f) => f.at >= cutoff && f.at <= nowFix.at && f.km !== undefined,
+    );
+    if (recent.length >= 2) {
+      const oldest = recent[0];
+      const newest = recent[recent.length - 1];
+      const deltaHours = (newest.at - oldest.at) / 3600000;
+      const deltaKm = (newest.km ?? r.progressKm) - (oldest.km ?? 0);
+      if (deltaHours >= 3 / 60 && deltaKm >= 0) {
+        return stabilize(deltaKm / deltaHours);
+      }
+    }
+  }
+  if (r.previousFix && r.previousFix.km !== undefined) {
+    const deltaHours = (nowFix.at - r.previousFix.at) / 3600000;
+    const deltaKm = (nowFix.km ?? r.progressKm) - r.previousFix.km;
+    if (deltaHours > 0 && deltaHours <= 45 / 60 && deltaKm >= 0) {
+      return stabilize(deltaKm / deltaHours);
+    }
+  }
+  return { kmh: overall, source: "overall" };
+}
+export function rollingSpeed(r: Race, windowMs = 40 * 60 * 1000) {
+  return paceEstimate(r, windowMs).kmh;
+}
+export function stationDwellStatus(
+  r: Race,
+  now = Date.now(),
+): {
+  atStation: boolean;
+  station?: Station;
+  dwellMs: number;
+  arrivalAt?: number;
+} {
+  if (!r.fix || r.status !== "live") {
+    return { atStation: false, dwellMs: 0 };
+  }
+  for (const s of r.stations) {
+    if (s.id === "finish") continue;
+    const alongRouteDist = Math.abs(r.progressKm - s.km);
+    const sCoord = atDistance(r.route, r.distances, s.km);
+    const distToCoord = distance([r.fix.lng, r.fix.lat], sCoord);
+
+    if (alongRouteDist <= 0.1 && distToCoord <= 0.1) {
+      const split = r.splits.find((sp) => sp.stationId === s.id);
+      if (!split) continue;
+      const arrivalAt = split.at;
+      const dwellMs = Math.max(0, now - arrivalAt);
+      const movedPast = r.progressKm - s.km;
+
+      if (movedPast <= 0.1) {
+        const prevMove = r.previousFix
+          ? distance(
+              [r.fix.lng, r.fix.lat],
+              [r.previousFix.lng, r.previousFix.lat],
+            )
+          : 0;
+        if (
+          prevMove <= 0.05 ||
+          (r.fix.at - arrivalAt < 20 * 60000 && movedPast <= 0.05)
+        ) {
+          return { atStation: true, station: s, dwellMs, arrivalAt };
+        }
+      }
+    }
+  }
+  return { atStation: false, dwellMs: 0 };
+}
+export function calculateEta(
+  r: Race,
+  targetStationKm: number,
+  targetStationId: string,
+  now = Date.now(),
+  context?: {
+    dwell: ReturnType<typeof stationDwellStatus>;
+    pace: ReturnType<typeof paceEstimate>;
+  },
+): number | null {
+  if (r.status === "complete" || !r.fix) return null;
+  if (targetStationKm <= r.progressKm) return null;
+
+  const dwell = context?.dwell ?? stationDwellStatus(r, now);
+  const pace = context?.pace ?? paceEstimate(r);
+  const useOverall = dwell.atStation || pace.source === "overall";
+  const effectivePace = useOverall ? speed(r) : pace.kmh;
+  if (!(effectivePace > 0)) return null;
+
+  const distKm = targetStationKm - r.progressKm;
+  const travelTimeMs = (distKm / effectivePace) * 3600000;
+
+  const intermediateStations = r.stations.filter((s) => {
+    if (s.id === "finish" || s.id === targetStationId) return false;
+    if (dwell.atStation && dwell.station && s.id === dwell.station.id)
+      return false;
+    return (
+      s.km > r.progressKm &&
+      s.km < targetStationKm &&
+      !r.splits.some((sp) => sp.stationId === s.id)
+    );
+  });
+
+  const intermediateDwellMs = useOverall
+    ? 0
+    : intermediateStations.length * 10 * 60 * 1000;
+
+  if (dwell.atStation) {
+    const remainingDwellHere = useOverall
+      ? 0
+      : Math.max(0, 10 * 60 * 1000 - dwell.dwellMs);
+    return Math.round(
+      now + remainingDwellHere + travelTimeMs + intermediateDwellMs,
+    );
+  } else {
+    return Math.round(r.fix.at + travelTimeMs + intermediateDwellMs);
+  }
+}
+
 export function applyFixes(r: Race, fixes: Fix[]): Race {
   let out = structuredClone(r);
   if (out.status === "complete") return out;
@@ -112,8 +245,23 @@ export function applyFixes(r: Race, fixes: Fix[]): Race {
     if (match.offKm > 0.25) continue;
     const km = Math.max(out.progressKm, match.km);
     const pending = out.pendingFix;
+    const recentHours =
+      out.fix && out.previousFix
+        ? (out.fix.at - out.previousFix.at) / 3600000
+        : 0;
+    const recentSpeed =
+      recentHours > 0
+        ? ((out.fix?.km ?? out.progressKm) - (out.previousFix?.km ?? 0)) /
+          recentHours
+        : 0;
+    const consistentWithAccepted =
+      recentSpeed > 0 &&
+      hours > 0 &&
+      hours <= 0.5 &&
+      recentHours <= 0.5 &&
+      km - out.progressKm <= Math.max(0.15, recentSpeed * hours * 1.5);
     const suspicious =
-      match.ambiguous ||
+      (match.ambiguous && !consistentWithAccepted) ||
       (out.fix &&
         km - out.progressKm > 1 &&
         (km - out.progressKm) / Math.max(hours, 1 / 3600) >
@@ -131,28 +279,47 @@ export function applyFixes(r: Race, fixes: Fix[]): Race {
     }
     out.pendingFix = null;
     const previous = out.fix;
+    const confirmedPending =
+      corroborated &&
+      pending &&
+      (pending.km ?? 0) >= out.progressKm &&
+      (pending.km ?? 0) <= km
+        ? pending
+        : null;
     for (const station of out.stations) {
       if (
         station.km <= km &&
         !out.splits.some((s) => s.stationId === station.id)
       ) {
-        const oldKm = out.progressKm;
-        const oldAt = previous?.at ?? out.startAt;
+        const afterPending =
+          confirmedPending && station.km > (confirmedPending.km ?? 0);
+        const oldKm = afterPending ? confirmedPending.km! : out.progressKm;
+        const oldAt = afterPending
+          ? confirmedPending.at
+          : (previous?.at ?? out.startAt);
+        const endKm =
+          confirmedPending && !afterPending ? confirmedPending.km! : km;
+        const endAt =
+          confirmedPending && !afterPending ? confirmedPending.at : fix.at;
         const fraction = Math.max(
           0,
-          Math.min(1, (station.km - oldKm) / (km - oldKm || 1)),
+          Math.min(1, (station.km - oldKm) / (endKm - oldKm || 1)),
         );
         out.splits.push({
           stationId: station.id,
-          at: Math.round(oldAt + (fix.at - oldAt) * fraction),
+          at: Math.round(oldAt + (endAt - oldAt) * fraction),
           estimated: true,
         });
       }
     }
-    out.previousFix = previous;
+    out.previousFix = confirmedPending ?? previous;
     out.fix = { ...fix, km };
     out.progressKm = km;
-    out.track = [...out.track, { ...fix, km }].slice(-2000);
+    out.track = [
+      ...out.track,
+      ...(confirmedPending ? [confirmedPending] : []),
+      { ...fix, km },
+    ].slice(-2000);
     out.status = "live";
     const total = out.distances.at(-1)!;
     if (

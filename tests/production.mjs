@@ -23,7 +23,7 @@ const viewer=await p.getByRole('link',{name:'Open live viewer'}).getAttribute('h
 const id=viewer.split('/').pop(),token=new URL(p.url()).pathname.split('/').pop();
 cleanupFile=`/tmp/milemark-production-${id}.json`;
 writeFileSync(cleanupFile,JSON.stringify({[`races/${id}`]:null,[`jobs/${id}`]:null,[`editKeys/${createHash('sha256').update(token).digest('hex')}`]:null}));
-const v=await c.newPage();v.on('pageerror',e=>errors.push(e.message));await v.goto(origin+viewer);
+const v=await c.newPage();await v.addInitScript(()=>{Object.defineProperty(window,'WebSocket',{value:undefined});});let longPollRequests=0;v.on('request',r=>{if(r.url().includes('/.lp?'))longPollRequests++;});v.on('pageerror',e=>errors.push(e.message));await v.goto(origin+viewer);
 await v.getByRole('heading',{name:'Deployment verification'}).waitFor();await v.getByText('VERT COMPLETED',{exact:true}).waitFor();await v.getByText('/ 328 ft',{exact:true}).waitFor();assert.equal(/\bkm\b/.test(await v.locator('body').innerText()),false);await v.getByText('Event starting at',{exact:false}).waitFor();
 await p.getByLabel('Race name',{exact:true}).fill('Verified live updates');await p.getByRole('button',{name:'Save changes'}).click();
 await v.getByRole('heading',{name:'Verified live updates'}).waitFor();
@@ -35,6 +35,7 @@ await v.evaluate(()=>navigator.serviceWorker.ready);await v.waitForTimeout(1000)
 await v.getByRole('heading',{name:'Verified live updates'}).waitFor();await v.getByText('FINISHED',{exact:true}).waitFor();
 assert.equal((await v.locator('body').innerText()).includes('Failed to fetch'),false);
 await c.setOffline(false);await v.getByText('FINISHED',{exact:true}).waitFor();
+assert.ok(longPollRequests>0,"Viewer should connect with Firebase long polling when WebSockets are unavailable");
 assert.deepEqual(errors,[]);
 console.log('PASS: production creation, editing, independent realtime viewer, mobile layout, completion, and offline archive reload. Cleanup recorded.');
 }finally{

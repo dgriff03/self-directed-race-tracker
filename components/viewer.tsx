@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Route,
   ArrowUpRight,
@@ -20,6 +20,9 @@ import {
   atDistance,
   elapsed,
   speed,
+  paceEstimate,
+  stationDwellStatus,
+  calculateEta,
   kmToMiles,
   metersToFeet,
   pacePerMile,
@@ -153,6 +156,16 @@ export default function Viewer({ id }: { id: string }) {
       setError("Copy the viewer URL from your browser to share this race.");
     }
   };
+  const etaBase = useMemo(
+    () =>
+      race
+        ? {
+            pace: paceEstimate(race),
+            dwell: stationDwellStatus(race, race.fix?.at ?? 0),
+          }
+        : null,
+    [race],
+  );
   if (!race)
     return (
       <main>
@@ -169,7 +182,15 @@ export default function Viewer({ id }: { id: string }) {
     );
   const total = race.distances.at(-1) ?? 0,
     percent = total ? (race.progressKm / total) * 100 : 0,
-    pace = speed(race),
+    overallSpeed = speed(race),
+    rolling = etaBase!.pace.kmh,
+    dwell = {
+      ...etaBase!.dwell,
+      dwellMs:
+        etaBase!.dwell.arrivalAt === undefined
+          ? 0
+          : Math.max(0, now - etaBase!.dwell.arrivalAt),
+    },
     next = race.stations.find(
       (s) => !race.splits.some((p) => p.stationId === s.id),
     );
@@ -182,18 +203,18 @@ export default function Viewer({ id }: { id: string }) {
     scheduled = !complete && now < race.startAt;
   const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 750000);
   const healthy = connected && online && !stale && race.feedOk === true;
-  const eta = (km: number) =>
-    pace > 0 && race.fix
-      ? race.fix.at + ((km - race.progressKm) / pace) * 3600000
-      : null;
+  const effectiveMoveSpeed = rolling > 0 ? rolling : overallSpeed;
   const estimatedKm =
-    estimate && race.fix && !complete && !scheduled && pace > 0
-      ? Math.min(
-          total - 0.051,
-          race.progressKm +
-            (pace * Math.min(Math.max(0, now - race.fix.at), 10 * 60000)) /
-              3600000,
-        )
+    estimate && race.fix && !complete && !scheduled && overallSpeed > 0
+      ? dwell.atStation
+        ? race.progressKm
+        : Math.min(
+            total - 0.051,
+            race.progressKm +
+              (effectiveMoveSpeed *
+                Math.min(Math.max(0, now - race.fix.at), 10 * 60000)) /
+                3600000,
+          )
       : undefined;
   return (
     <main>
@@ -315,11 +336,32 @@ export default function Viewer({ id }: { id: string }) {
           </p>
         </div>
         <div>
-          <span>AVERAGE PACE</span>
+          <span>
+            {complete
+              ? "AVERAGE PACE"
+              : dwell.atStation
+                ? "CURRENT STATUS"
+                : "ROLLING PACE"}
+          </span>
           <strong>
-            {pacePerMile(pace)} <small>min/mi</small>
+            {dwell.atStation && !complete ? (
+              "At aid station"
+            ) : (
+              <>
+                {pacePerMile(!complete && rolling > 0 ? rolling : overallSpeed)}{" "}
+                <small>min/mi</small>
+              </>
+            )}
           </strong>
-          <p>Based on confirmed progress</p>
+          <p>
+            {complete
+              ? "Based on confirmed progress"
+              : dwell.atStation
+                ? `${dwell.station?.name ?? "Aid station"} · Overall: ${pacePerMile(overallSpeed)} min/mi`
+                : etaBase!.pace.source === "rolling"
+                  ? `Recent 40 min · Overall: ${pacePerMile(overallSpeed)} min/mi`
+                  : "Based on confirmed progress"}
+          </p>
         </div>
         <div>
           <span>{complete ? "FINISHED AT" : "NEXT AID STATION"}</span>
@@ -406,12 +448,17 @@ export default function Viewer({ id }: { id: string }) {
             </div>
             {race.stations.map((s, i) => {
               const split = race.splits.find((p) => p.stationId === s.id);
-              const arrival = eta(s.km);
+              const arrival = calculateEta(race, s.km, s.id, now, {
+                pace: etaBase!.pace,
+                dwell,
+              });
               const isNext = next?.id === s.id;
+              const isDwell =
+                dwell.atStation && dwell.station?.id === s.id && !complete;
               return (
                 <div
                   key={s.id}
-                  className={`station-row ${isNext && !complete ? "next" : ""}`}
+                  className={`station-row ${(isNext || isDwell) && !complete ? "next" : ""}`}
                 >
                   <span className={`station-number ${split ? "done" : ""}`}>
                     {split ? (
@@ -426,7 +473,13 @@ export default function Viewer({ id }: { id: string }) {
                     <h3>{s.name}</h3>
                     <p>
                       {kmToMiles(s.km).toFixed(1)} mi{" "}
-                      {isNext && !complete && <b>NEXT UP</b>}
+                      {isDwell && (
+                        <b>
+                          AT STATION (
+                          {Math.max(1, Math.floor(dwell.dwellMs / 60000))}m)
+                        </b>
+                      )}
+                      {!isDwell && isNext && !complete && <b>NEXT UP</b>}
                     </p>
                     {split && (
                       <p>
@@ -467,7 +520,9 @@ export default function Viewer({ id }: { id: string }) {
           </div>
           <p className="panel-note">
             Crossing times are interpolated between GPS updates. Arrival
-            estimates change with pace.
+            estimates use recent pace when available, with a 10-minute allowance
+            per intermediate aid station. Overall-pace estimates already include
+            stops and add no extra allowance.
           </p>
         </aside>
       </section>

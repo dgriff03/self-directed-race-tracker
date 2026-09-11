@@ -179,7 +179,7 @@ export const api = onRequest(
             try {
               const points = await fetchFeed(
                 claim.snapshot.val().feedUrl,
-                race.startAt,
+                Math.min(race.startAt, Date.now() - 86400000),
               );
               res.json({
                 ok: true,

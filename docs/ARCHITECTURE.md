@@ -46,3 +46,12 @@ Tests cover course ingestion, timestamps, capability rules, post-start edits, pa
 **Garmin connectivity verified September 11, 2026:** the organizer-supplied feed returned HTTP 200 KML with no redirect. The production fetcher accepted millisecond ISO d1 and returned zero positions for the previous day; a deployed Cloud Function test also returned healthy with zero positions. Its temporary race and private job were removed. Actual moving-device ingestion, timestamp variants, and race splits still require live-device verification.
 
 A second supplied feed was verified the same day: an unfiltered request returned one latest point, while the deployed Cloud Function returned **145 timestamped points** with `d1=2026-09-06T00:00:00.000Z`. The latest point was September 7, 2026 at 18:25:30 UTC; the last-24-hour query was empty. This confirms real historical Garmin data ingestion through the deployed fetcher. Live movement and course-specific split matching still require a corresponding GPX and active device. Temporary test records were removed.
+
+
+### ETA refinement
+
+ETA uses a 40-minute recent pace window when enough samples exist, with slow positive pace floored at half the overall average. Sparse/zero-movement samples and station dwell use overall pace, which already includes stops and therefore receive no extra dwell allowance. Recent-pace estimates add an explicit fixed ten-minute allowance for each intermediate station. This assumption is not yet configurable. Station dwell requires a recorded split and proximity by both route distance and coordinates; mere approach is not arrival. The viewer reuses one memoized dwell/pace calculation across station ETAs.
+
+Consistent movement following corroborated switchbacks can use the last accepted segment as evidence, avoiding an every-other-fix delay. Corroborated pending positions retain their original timestamps for split interpolation. Isolated ambiguous jumps still wait for confirmation.
+
+Feed diagnostics include at least the previous 24 hours even before the race starts. CSP permits Firebase RTDB long-poll transport hosts so viewers can connect without WebSockets. The production smoke test explicitly disables WebSockets for its viewer. Unused D1 examples and the unreferenced original PNG were removed; the visible WebP topo background and provenance remain.

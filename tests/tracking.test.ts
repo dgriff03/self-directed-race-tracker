@@ -5,6 +5,10 @@ import {
   cumulative,
   project,
   atDistance,
+  speed,
+  rollingSpeed,
+  stationDwellStatus,
+  calculateEta,
   type Race,
 } from "../shared/race";
 import { parseKml, validateFeed } from "../functions/src/feed";
@@ -175,37 +179,228 @@ test("vertical progress sums ascent, interpolates climbs, and ignores descents",
 });
 
 test("MapShare URLs normalize while Garmin host restrictions remain", () => {
-  assert.equal(validateFeed("https://share.garmin.com/Runner").pathname, "/Feed/Share/Runner");
-  assert.throws(() => validateFeed("https://share.garmin.com.evil.example/Runner"));
+  assert.equal(
+    validateFeed("https://share.garmin.com/Runner").pathname,
+    "/Feed/Share/Runner",
+  );
+  assert.throws(() =>
+    validateFeed("https://share.garmin.com.evil.example/Runner"),
+  );
 });
 test("Garmin Time UTC is independent of the process timezone", () => {
   const old = process.env.TZ;
   process.env.TZ = "America/Denver";
   try {
-    const fixes = parseKml('<kml><Placemark><ExtendedData><Data name="Time UTC"><value>9/11/2026 4:00:00 PM</value></Data></ExtendedData><Point><coordinates>-105,40</coordinates></Point></Placemark></kml>');
+    const fixes = parseKml(
+      '<kml><Placemark><ExtendedData><Data name="Time UTC"><value>9/11/2026 4:00:00 PM</value></Data></ExtendedData><Point><coordinates>-105,40</coordinates></Point></Placemark></kml>',
+    );
     assert.equal(fixes[0].at, Date.parse("2026-09-11T16:00:00Z"));
-  } finally { if (old === undefined) delete process.env.TZ; else process.env.TZ = old; }
+  } finally {
+    if (old === undefined) delete process.env.TZ;
+    else process.env.TZ = old;
+  }
 });
 
-import {requestIp} from "../functions/src/request-ip";
+import { requestIp } from "../functions/src/request-ip";
 test("rate limit identity ignores spoofed forwarded prefixes", () => {
-  assert.equal(requestIp("1.1.1.1, 203.0.113.9"), requestIp("8.8.8.8, 203.0.113.9"));
-  assert.equal(requestIp(undefined,"::ffff:127.0.0.1"),"127.0.0.1");
+  assert.equal(
+    requestIp("1.1.1.1, 203.0.113.9"),
+    requestIp("8.8.8.8, 203.0.113.9"),
+  );
+  assert.equal(requestIp(undefined, "::ffff:127.0.0.1"), "127.0.0.1");
 });
 test("an ambiguous parallel-trail fix cannot fabricate splits", () => {
   const r = race();
-  r.route = [[0,0],[.02,0],[.02,.0005],[0,.0005]];
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0.02, 0.0005],
+    [0, 0.0005],
+  ];
   r.distances = cumulative(r.route);
-  r.stations = [{id:"aid",name:"Aid",km:1.5}];
-  r.progressKm = .3;
-  r.fix = {lng:.003,lat:0,at:r.startAt+100000,km:.3};
-  const pending = applyFixes(r,[{lng:.004,lat:.0005,at:r.startAt+1800000}]);
-  assert.equal(pending.progressKm,.3);
-  assert.equal(pending.splits.length,0);
+  r.stations = [{ id: "aid", name: "Aid", km: 1.5 }];
+  r.progressKm = 0.3;
+  r.fix = { lng: 0.003, lat: 0, at: r.startAt + 100000, km: 0.3 };
+  const pending = applyFixes(r, [
+    { lng: 0.004, lat: 0.0005, at: r.startAt + 1800000 },
+  ]);
+  assert.equal(pending.progressKm, 0.3);
+  assert.equal(pending.splits.length, 0);
   assert.ok(pending.pendingFix);
-  const recovered=applyFixes(pending,[{lng:.005,lat:0,at:r.startAt+2400000}]);
-  assert.ok(recovered.progressKm<1);
-  assert.equal(recovered.splits.length,0);
-  const confirmed=applyFixes(pending,[{lng:.003,lat:.0005,at:r.startAt+2400000}]);
-  assert.equal(confirmed.splits.length,1);
+  const recovered = applyFixes(pending, [
+    { lng: 0.005, lat: 0, at: r.startAt + 2400000 },
+  ]);
+  assert.ok(recovered.progressKm < 1);
+  assert.equal(recovered.splits.length, 0);
+  const confirmed = applyFixes(pending, [
+    { lng: 0.003, lat: 0.0005, at: r.startAt + 2400000 },
+  ]);
+  assert.equal(confirmed.splits.length, 1);
+});
+
+test("rollingSpeed uses recent samples in its 40-minute window and falls back to overall speed when sparse", () => {
+  const r = race();
+  const t0 = r.startAt;
+  // Race started 2 hours ago, overall speed = 10 km / 2 h = 5 km/h
+  r.progressKm = 10;
+  r.fix = { lng: 0.01, lat: 0, at: t0 + 2 * 3600000, km: 10 };
+  // Overall speed is 5 km/h
+  assert.equal(speed(r), 5);
+
+  // When track has fewer than 2 fixes, falls back to overall speed
+  r.track = [r.fix];
+  assert.equal(rollingSpeed(r), 5);
+
+  // In the last 15 minutes, runner sped up to 10 km/h:
+  // Fix 15 min ago: km 7.5 at t0 + 105 min
+  // Fix now: km 10.0 at t0 + 120 min
+  // Delta = 2.5 km in 15 min (0.25 h) = 10 km/h
+  r.track = [
+    { lng: 0.005, lat: 0, at: t0 + 105 * 60000, km: 7.5 },
+    { lng: 0.01, lat: 0, at: t0 + 120 * 60000, km: 10.0 },
+  ];
+  assert.equal(rollingSpeed(r), 10);
+});
+
+test("stationDwellStatus detects stationary runner at aid station", () => {
+  const r = race();
+  // Station 1 at km 0.8
+  const stnCoord = atDistance(r.route, r.distances, 0.8);
+  const tNow = r.startAt + 3600000;
+  // Runner arrived at Station 1 at tNow - 4 minutes
+  r.progressKm = 0.8;
+  r.fix = { lng: stnCoord[0], lat: stnCoord[1], at: tNow - 4 * 60000, km: 0.8 };
+  r.splits = [{ stationId: "aid", at: tNow - 4 * 60000, estimated: true }];
+
+  const dwell = stationDwellStatus(r, tNow);
+  assert.equal(dwell.atStation, true);
+  assert.equal(dwell.station?.id, "aid");
+  assert.equal(dwell.dwellMs, 4 * 60000);
+
+  // Runner moves 500m past the station
+  r.progressKm = 1.3;
+  r.fix = { lng: 0.015, lat: 0, at: tNow + 60000, km: 1.3 };
+  assert.equal(stationDwellStatus(r, tNow + 60000).atStation, false);
+});
+
+test("calculateEta accounts for intermediate 10-minute station dwell and current dwell", () => {
+  const r = race();
+  r.route = [
+    [0, 0],
+    [0.1, 0],
+    [0.2, 0],
+    [0.3, 0],
+  ];
+  r.distances = [0, 10, 20, 30]; // 30 km total
+  r.stations = [
+    { id: "aid1", name: "Aid 1", km: 10 },
+    { id: "aid2", name: "Aid 2", km: 20 },
+    { id: "finish", name: "Finish", km: 30 },
+  ];
+
+  // Case 1: Runner is moving between Start and Aid 1 at 10 km/h
+  // StartAt: 8:00 AM (t0)
+  // At km 5 at 8:30 AM (t0 + 30 min)
+  const t0 = r.startAt;
+  const tFix = t0 + 30 * 60000;
+  r.progressKm = 5;
+  r.fix = { lng: 0.05, lat: 0, at: tFix, km: 5 };
+  r.track = [
+    { lng: 0.025, lat: 0, at: tFix - 15 * 60000, km: 2.5 },
+    { lng: 0.05, lat: 0, at: tFix, km: 5 },
+  ];
+  // Rolling speed = 2.5 km in 15 min = 10 km/h
+  assert.equal(rollingSpeed(r), 10);
+
+  // Target: Aid 1 (km 10) -> remaining 5 km at 10 km/h = 30 min. No intermediate stations.
+  // ETA = tFix + 30 min
+  const etaAid1 = calculateEta(r, 10, "aid1", tFix);
+  assert.equal(etaAid1, tFix + 30 * 60000);
+
+  // Target: Aid 2 (km 20) -> remaining 15 km at 10 km/h = 90 min + 10 min at Aid 1 = 100 min.
+  // ETA = tFix + 100 min
+  const etaAid2 = calculateEta(r, 20, "aid2", tFix);
+  assert.equal(etaAid2, tFix + 100 * 60000);
+
+  // Target: Finish (km 30) -> remaining 25 km at 10 km/h = 150 min + 20 min (Aid 1 & Aid 2) = 170 min.
+  // ETA = tFix + 170 min
+  const etaFinish = calculateEta(r, 30, "finish", tFix);
+  assert.equal(etaFinish, tFix + 170 * 60000);
+
+  // Case 2: Runner is resting AT Aid 1 (km 10)
+  // Overall race average: 10 km in 2 hours = 5 km/h
+  // Arrived at Aid 1 at t0 + 116 min (4 minutes ago)
+  const tNow = t0 + 120 * 60000;
+  r.progressKm = 10;
+  r.splits = [{ stationId: "aid1", at: t0 + 116 * 60000, estimated: true }];
+  r.fix = { lng: 0.1, lat: 0, at: t0 + 116 * 60000, km: 10 };
+  r.track = [{ lng: 0.1, lat: 0, at: t0 + 116 * 60000, km: 10 }];
+  assert.equal(speed(r), 10 / (116 / 60)); // ~5.17 km/h
+
+  // Target: Aid 2 (km 20).
+  // Remaining distance: 10 km at overall speed (5.1724 km/h) = 116 minutes travel time.
+  // Remaining dwell at Aid 1: 10 min - 4 min = 6 minutes.
+  // Overall pace already includes stops; no extra dwell is added.
+  const etaFromStation = calculateEta(r, 20, "aid2", tNow);
+  const expectedTravelMs = (10 / speed(r)) * 3600000;
+  assert.equal(etaFromStation, Math.round(tNow + expectedTravelMs));
+});
+
+test("overall ETA does not add station dwell with sparse fixes", () => {
+  const r = race();
+  r.progressKm = 1;
+  r.fix = { lng: 0.009, lat: 0, km: 1, at: r.startAt + 3600000 };
+  r.stations = [
+    { id: "a", name: "A", km: 1.2 },
+    { id: "b", name: "B", km: 1.5 },
+    { id: "finish", name: "Finish", km: 2 },
+  ];
+  assert.equal(calculateEta(r, 2, "finish", r.fix.at), r.fix.at + 3600000);
+});
+test("approaching a station does not count as arrival", () => {
+  const r = race(),
+    point = atDistance(r.route, r.distances, 0.75);
+  r.progressKm = 0.75;
+  r.fix = { lng: point[0], lat: point[1], km: 0.75, at: r.startAt + 3600000 };
+  r.previousFix = { lng: 0, lat: 0, km: 0, at: r.startAt };
+  assert.equal(stationDwellStatus(r, r.fix.at).atStation, false);
+  assert.ok(calculateEta(r, 0.8, "aid", r.fix.at) < r.fix.at + 5 * 60000);
+});
+test("tiny positive rolling pace is bounded by overall pace", () => {
+  const r = race();
+  r.progressKm = 10;
+  r.fix = { lng: 0.01, lat: 0, km: 10, at: r.startAt + 2 * 3600000 };
+  r.track = [
+    { lng: 0.009, lat: 0, km: 9.95, at: r.fix.at - 20 * 60000 },
+    r.fix,
+  ];
+  assert.equal(rollingSpeed(r), 2.5);
+});
+test("confirmed switchback motion applies each following fix and preserves pending timing", () => {
+  const r = race();
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0.02, 0.0005],
+    [0, 0.0005],
+  ];
+  r.distances = cumulative(r.route);
+  r.stations = [{ id: "aid", name: "Aid", km: 1.5 }];
+  r.progressKm = 0.3;
+  r.fix = { lng: 0.003, lat: 0, at: r.startAt + 100000, km: 0.3 };
+  const pending = { lng: 0.004, lat: 0.0005, at: r.startAt + 1800000 };
+  let current = applyFixes(r, [
+    pending,
+    { lng: 0.003, lat: 0.0005, at: r.startAt + 2400000 },
+  ]);
+  assert.ok(current.splits[0].at < pending.at);
+  assert.equal(current.previousFix.at, pending.at);
+  for (const [lng, at] of [
+    [0.002, r.startAt + 3000000],
+    [0.001, r.startAt + 3500000],
+  ]) {
+    current = applyFixes(current, [{ lng, lat: 0.0005, at }]);
+    assert.equal(current.fix.at, at);
+    assert.equal(current.pendingFix, null);
+  }
 });
