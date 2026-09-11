@@ -29,13 +29,13 @@ Finishing automatically or manually deactivates polling and leaves the viewer UR
 
 The service worker precaches the app shell and hashed bundles; public Firebase config is optional during installation and subsequently cached network-first. Private API requests are never cached. IndexedDB stores race snapshots, migrating old localStorage snapshots on access; storage failures are reported.
 
-Cold offline navigation renders the cached shell and race, reports offline state and last-update time, and reconnects when connectivity returns. OSM tiles are cached only on demand (300-tile cap), respect cache lifetime, and may be served stale offline. Unvisited areas can be blank offline while the vector route and splits remain available.
+Cold offline navigation renders the cached shell and race, reports offline state and last-update time, and reconnects when connectivity returns. USGS Topo tiles are cached only on demand (300-tile cap), respect cache lifetime, and may be served stale offline. Unvisited areas can be blank offline while the vector route and splits remain available.
 
 New workers wait for old tabs to close before activation and cache cleanup. This preserves precached old lazy chunks for already-open pages. Core asset installation failures prevent activation; optional config failure does not discard the offline shell.
 
 ## Privacy and boundaries
 
-Garmin HTTPS hosts and paths are allowlisted; credentials, redirects, XML entities, and excessive responses are rejected. Time UTC fields are explicitly interpreted in UTC. Feed URLs stay server-side, but Garmin MapShare itself may be publicly discoverable from a known share name. Magic links are bearer credentials, not recoverable accounts. Referrers expose only origin; Hosting includes HSTS and CSP. Default OSM attribution is visible. A custom tile provider can be configured with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION`; no paid provider has been provisioned.
+Garmin HTTPS hosts and paths are allowlisted; credentials, redirects, XML entities, and excessive responses are rejected. Time UTC fields are explicitly interpreted in UTC. Feed URLs stay server-side, but Garmin MapShare itself may be publicly discoverable from a known share name. Magic links are bearer credentials, not recoverable accounts. Referrers expose only origin; Hosting includes HSTS and CSP. Default USGS attribution is visible. A custom tile provider can be configured with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION`; no paid provider has been provisioned.
 
 ## Verification and deployment
 

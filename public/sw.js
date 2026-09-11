@@ -1,4 +1,4 @@
-const VERSION = "milemark-v7";
+const VERSION = "milemark-v8";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 const offlineClients = new Set();
 const SHELL = VERSION + "-shell";
@@ -82,7 +82,7 @@ self.addEventListener("fetch", (event) => {
     url.origin === self.location.origin &&
     (/^\/assets\//.test(url.pathname) ||
       ["/favicon.svg", "/manifest.webmanifest"].includes(url.pathname));
-  const tile = url.hostname === "tile.openstreetmap.org";
+  const tile = url.hostname === "basemap.nationalmap.gov" && url.pathname.startsWith("/arcgis/rest/services/USGSTopo/MapServer/tile/");
   if (!asset && !tile) return;
   event.respondWith(
     (async () => {

@@ -46,12 +46,13 @@ export default function RaceMap({
               type: "raster",
               tiles: [
                 import.meta.env.VITE_MAP_TILE_URL ||
-                  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
               ],
               tileSize: 256,
+              maxzoom: import.meta.env.VITE_MAP_TILE_URL ? 22 : 16,
               attribution:
                 import.meta.env.VITE_MAP_ATTRIBUTION ||
-                '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
+                '<a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noreferrer">USGS The National Map</a>',
             },
           },
           layers: [{ id: "base", type: "raster", source: "base" }],

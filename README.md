@@ -1,53 +1,31 @@
 # Milemark
 
-Desktop and mobile race tracking with MapLibre GL, Firebase Realtime Database (WebSocket subscriptions), and Firebase scheduled Cloud Functions. No sign-in: independent cryptographically random UUIDs grant viewer and editor access.
+## Project overview
 
-For a deep dive into the system design, data flows, and security model, see the [System Architecture Documentation](docs/ARCHITECTURE.md).
+Milemark tracks self-directed running and hiking races for organizers and support crews. Upload a GPX route, add aid stations, and connect a Garmin MapShare/KML feed. Viewers get a live map, arrival estimates, interpolated splits, distance in miles, and ascent completed in feet.
 
-## Run
+- **Live app:** https://self-directed-tracker-type-two.web.app
+- **Firebase project:** `self-directed-tracker-type-two`
+- **Frontend:** React, Vite, and MapLibre GL
+- **Basemap:** USGS Topo, free without an account or API key. Detailed coverage is intended for U.S. races.
+- **Backend:** Firebase Realtime Database and Node 22 Cloud Functions in `us-central1`
+- **Access:** separate random UUID viewer and editor links, with no sign-in
 
-Use Node 22.13+ (Node 24 works for local frontend development) and npm.
+## Run locally
+
+Prerequisites: Node 22.13+ (Node 24 recommended for development), npm, and Java 21+ if using the Firebase database emulator.
 
 ```sh
 npm ci
 npm --prefix functions ci
-npm run dev:frontend
+npm run dev
 ```
 
-Open the printed URL. `/demo` is an explicitly labeled sample course; `/setup` is the real editor. Creating real races requires Firebase configuration below. No fake success or local-only race creation is used.
+Open `http://127.0.0.1:5174/demo` for simulated tracking. `/setup` opens the organizer form. Demo viewing does not require a Firebase account. Creating and editing real races requires a configured backend.
 
-## Deploy to Firebase
+### Local backend with emulators
 
-Firebase Hosting is the production target so the frontend, private API, and scheduled ingestion share one project. A Firebase project with billing enabled is needed for scheduled functions. Create a Realtime Database and register a Firebase web app in that project.
-
-1. Copy `public/firebase-config.example.json` to `public/firebase-config.json`. Fill in the **web app** configuration (public identifiers, never service account credentials). Use your database's exact URL, including regional hostname when applicable. Leave `apiBase` as `/api` for Firebase Hosting. Creation calls use the direct us-central1 function URL to avoid a shared CDN rate-limit bucket; edit calls use `apiBase`.
-2. Sign in with `npx firebase login`, then select the project with `npx firebase use --add`.
-3. Build and deploy:
-
-```sh
-npm run typecheck
-npm test
-npm run build:frontend
-npm run build:functions
-npx firebase deploy --only database,functions,hosting
-```
-
-The Hosting predeploy check refuses missing, placeholder, or emulator Firebase configuration, so a demo-only build cannot be accidentally published as the live app.
-
-Deploy the database rules together with the functions; do not use test-mode database rules. The scheduled `pollGarmin` function runs every five minutes even with no viewers. Open `/setup`, upload a GPX, choose a start date/time, paste the Garmin MapShare or KML feed URL, and add stations. Bookmark the private edit URL and share only the viewer URL.
-
-For another static host, publish `dist/client`, configure SPA fallback to `index.html`, and set `apiBase` to the HTTPS `api` function URL. Firebase still owns the backend. The production build is the Vite SPA (`build:frontend`); there is no alternate routing framework.
-
-## Local Firebase emulators
-
-Java 21+ is required by the database emulator. Use the demo project to prevent accidental production writes.
-
-```sh
-npm run build:functions
-npx firebase emulators:start --only database,functions --project demo-paceline
-```
-
-For browser integration, create `public/firebase-config.json` with:
+Use the emulator configuration below in the **gitignored** `public/firebase-config.json`. Preserve any existing production configuration separately before replacing it.
 
 ```json
 {
@@ -60,52 +38,116 @@ For browser integration, create `public/firebase-config.json` with:
 }
 ```
 
-Use `127.0.0.1` as the browser hostname. Do not deploy emulator configuration. The scheduler itself is not run by this emulator command; tests exercise its ingestion engine separately.
+Start the backend in a second terminal:
 
 ```sh
-npm run test:rules
-node tests/integration.mjs
-node tests/scheduler.mjs
+npm run build:functions
+npx firebase emulators:start --only database,functions --project demo-paceline
 ```
 
-`tests/browser.mjs` tests the production preview at `127.0.0.1:4173` with Chrome: responsive layout, GPX upload, aid stations, estimate toggling, missing-config handling, and a cold offline reload. It expects no Firebase configuration. `tests/live-browser.mjs` uses emulator configuration to verify cross-viewer updates, editing, and completion.
+Keep `npm run dev` running for the frontend. Cloud Scheduler does not run automatically in the emulators; `node tests/scheduler.mjs` exercises scheduled ingestion using mocked Garmin responses. The legacy `demo-paceline` name remains solely as the test namespace.
 
-## Behavior and limits
+To test the production-built app and service worker locally:
 
-- Public records are under `/races/{viewerUUID}`. Feed URLs are exclusively under denied `/jobs`; only hashes of editor UUIDs are stored in denied `/editKeys`. Public records and editor GET responses never include the KML URL. There is no list-races endpoint. API calls use the edit capability as a bearer header. Referrers are reduced to the origin so URL capabilities are not sent to map providers. There are no analytics or third-party scripts.
-- URLs are bearer credentials, not recoverable accounts. Anyone receiving the edit URL can edit/finish that race. Treat browser history and shared screenshots accordingly. There is no link recovery or rotation in v1.
-- Only HTTPS Garmin feed hosts and feed paths are accepted. Redirects, URL credentials, oversized responses, and XML entities are rejected. Garmin errors are sanitized. Use one runner per feed; password-protected feeds and multiple devices are not supported in v1.
-- GPX files may contain up to 10 MB. Larger routes are automatically simplified to at most 6,000 points using geometry and elevation error. Routes must be 0.1–2,000 km. Distances are displayed and entered in miles; pace is minutes per mile. Existing database distances stay in km for compatibility. Start time is entered in the organizer's local timezone and stored as an absolute timestamp.
-- A route-relative station distance distinguishes visits to the same location on loops. Map picking chooses the first near-equal route segment; enter the distance manually for later visits. Route/start/stations lock once the first position is accepted. Names and feed configuration remain editable during tracking. Saving a replacement feed resumes paused tracking. The editor shows live poll diagnostics and offers a rate-limited test of the saved feed.
-- GPX elevation profiles are retained in meters, and vertical progress is displayed in feet. Cumulative ascent includes positive elevation changes only, interpolated at confirmed route progress. This estimates course ascent completed, not measured barometric gain. Elevation gaps are interpolated by distance (edge gaps use the nearest elevation); profiles with fewer than two valid elevations show unavailable; existing races can upload the same route with elevations without resetting stations or splits.
-- Ambiguous jumps onto nearby earlier/later trail sections and unusually fast large jumps wait for a second distinct, consistent fix before changing progress or splits. GPS projections remain estimates, not ground truth.
-- Fixes are sorted and deduplicated by timestamp. Progress is monotonic, constrained to a reachable window at up to 25 km/h, and ignored farther than 250 m off-route. This targets running/hiking races; it is not configured for cycling. Highly ambiguous loops, GPS gaps, and shortcuts can still produce uncertain progress.
-- Splits are interpolated between positions, **not exact observed crossing times**. ETA uses recent stabilized pace when available and overall pace as a fallback. Past ETAs retain their projected date/time and show minutes overdue. The optional estimated marker projects average pace for at most 10 minutes and is labeled separately from the Garmin fix.
-- Finish requires progress within 50 m of the end and a fix within 75 m of the finish. It atomically marks the race complete; subsequent polls skip it. Manual completion stops checks without inventing missing splits. Archive URLs remain usable indefinitely while the Firebase data is retained.
-- Garmin is polled every five minutes. Every poll writes a health heartbeat, even when Garmin returns no new fix or fails. The UI separately shows network connection, heartbeat freshness (12.5-minute threshold), feed success, and the timestamp of the last GPS fix.
-- Service worker precaches the complete app bundle. Public Firebase SDK configuration is cached network-first. Viewer snapshots are saved in IndexedDB with migration from the old localStorage cache; a previously opened race reloads offline. Tiles already viewed are cached on demand, with a 300-tile limit. New areas/zoom levels may be blank offline, but the vector route, position markers, and splits still render. No private API responses or feed links are cached.
-- Default basemap: OpenStreetMap raster tiles with visible attribution; no bulk tile prefetch. For larger production audiences use a tile provider appropriate to your volume and offline requirements. Set `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` at build time to use a dedicated provider. Custom-provider tiles use normal HTTP caching; the service worker only caches the default OSM host.
-- Polling pauses after 24 hours without a new GPS fix (or since start/resume). The archive is not marked complete. The organizer can resume from the edit page for another 24-hour window.
-- Static and dynamic race fields have independent realtime subscriptions, preserving existing URLs and reflecting organizer edits without redownloading route geometry on heartbeat changes.
-- Creation is limited to 10 races per observed client/proxy IP per hour, using the rightmost Cloud Run forwarded hop. Client-prepended values cannot change this bucket. Quota entries older than a day are removed in bounded batches. Jobs use transaction leases to avoid duplicate polling. Realtime Database changes are transactional so completion cannot be overwritten by a pending poll. This v1 is designed for a small number of simultaneous personal races, not a public mass-event service.
+```sh
+npm run build:frontend
+npm run start
+```
+
+Open `http://127.0.0.1:4173/demo`. Service workers are enabled in production builds, not the Vite development server.
+
+## Deploy
+
+Firebase Hosting serves the SPA, while Firebase owns the API, database, and five-minute ingestion schedule. A billing-enabled Firebase project, Realtime Database instance, and registered Firebase web app are required.
+
+1. Configure `public/firebase-config.json` using `public/firebase-config.example.json` and the Firebase web app's public SDK identifiers. Use the exact database URL, keep `apiBase` as `/api`, and omit `emulator`. Never put service-account credentials in this file.
+2. Authenticate with `npx firebase login`.
+3. Validate, build, and deploy:
+
+```sh
+npm run typecheck
+npm test
+npm run build
+npx firebase deploy --only database,functions,hosting --project self-directed-tracker-type-two
+```
+
+The predeploy check rejects missing, placeholder, or emulator frontend configuration. Functions are rebuilt by the deployment hook; the frontend must be built before deployment. Build output and local configuration are intentionally excluded from Git.
+
+For frontend-only changes, run `npm run build:frontend`, then deploy with `--only hosting`. A custom domain is connected through Firebase Hosting and DNS; race data does not need migration.
+
+Creation calls go directly to the `us-central1` API function URL so the Hosting CDN does not become a shared rate-limit bucket. Editor requests use `apiBase`. When using production Firebase from the local development server, set `apiBase` to `https://us-central1-self-directed-tracker-type-two.cloudfunctions.net/api`; `/api` rewrites are only available on Firebase Hosting.
+
+## System architecture
+
+```mermaid
+flowchart LR
+  Browser[React + MapLibre] --> Hosting[Firebase Hosting: SPA]
+  Browser <-->|Realtime subscriptions| DB[(Realtime Database)]
+  Browser -->|Create / bearer-authorized edit| API[Cloud Function: api]
+  API --> DB
+  Scheduler[Cloud Scheduler: every 5 minutes] --> Poll[Cloud Function: pollGarmin]
+  Poll -->|Private KML fetch| Garmin[Garmin MapShare]
+  Poll --> DB
+  Browser --> Maps[USGS Topo tiles]
+  Browser --> Offline[Service worker + IndexedDB]
+```
+
+| Path / component | Responsibility |
+|---|---|
+| `client.tsx` | Routes `/`, `/setup`, `/edit/:token`, `/r/:id`, `/demo` |
+| `components/editor.tsx` | GPX upload, station placement, edits, feed diagnostics |
+| `components/viewer.tsx` | Live race status, ETA, splits, offline status |
+| `components/race-map.tsx` | MapLibre basemap, course, stations, location markers |
+| `shared/race.ts` | Route projection, GPS validation, splits, pace and ETA |
+| `functions/src/` | Private API and scheduled Garmin ingestion |
+| `lib/firebase.ts` | Public SDK configuration and per-field live subscriptions |
+| `lib/offline.ts`, `public/sw.js` | Offline race snapshots, app shell and viewed tiles |
+
+Database records are divided into public `/races/{viewerUUID}` and private `/jobs/{viewerUUID}`, `/editKeys/{SHA256(editToken)}`, and `/limits/{ipHash}`. Clients can read only an exact valid race UUID; they cannot enumerate races, write records, or read private nodes. Static route fields and live fields have independent subscriptions, so heartbeat changes do not resend the route geometry.
+
+See [System architecture](docs/ARCHITECTURE.md) for lifecycle, security boundaries, algorithms, and deployment details.
+
+## How it works
+
+1. **Set up:** upload a GPX, choose the start time, enter a Garmin MapShare or KML feed URL, and place aid stations by map click or route distance. Each visit to a repeated station can have its own route distance. The finish is added automatically.
+2. **Share:** save the private edit link and give crews the independent viewer link. Before the start, viewers see the scheduled start time.
+3. **Track:** the server polls Garmin every five minutes, validates GPS timestamps and plausible route progress, and writes a health heartbeat even when no new position arrives. With a ten-minute device interval, latency can approach fifteen minutes.
+4. **Estimate:** distance and ascent use confirmed progress. ETAs use a stabilized 40-minute pace window when possible, otherwise overall pace. Recent-pace estimates add ten minutes per intermediate station; overall pace already includes stops and receives no extra allowance. A station is not treated as reached merely because the runner approaches it.
+5. **Record:** crossings between confirmed fixes produce explicitly estimated splits. Suspicious jumps wait for corroboration; consistent switchback movement can use the previously accepted segment. Overdue ETAs retain their date/time and show minutes overdue.
+6. **Finish:** automatic or manual completion stops polling and preserves the viewer URL as an archive. After 24 hours without a new fix since start/resume, polling pauses without claiming a finish; the organizer can resume or replace the feed.
+
+### Offline and maps
+
+A previously viewed race can reload offline from the cached app shell and IndexedDB snapshot. Viewed USGS Topo tiles are cached on demand, capped at 300 tiles, with cache lifetime respected and stale tiles available offline. Unvisited areas may be blank offline, but the course and splits remain visible. No private API responses or feed URLs are cached. New service workers wait for old tabs to close before replacing their asset caches.
+
+The basemap uses the public [USGS Topo service](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer), with visible USGS attribution. Tiles use ArcGIS order `/tile/{z}/{y}/{x}`. Native tiles stop at zoom 16 in the app and are enlarged at closer zoom levels. No map API key is needed. `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` can override the provider at build time; custom-provider tiles do not use the USGS service-worker cache.
+
+### Limits and privacy
+
+- GPX uploads are limited to 10 MB and automatically simplified to at most 6,000 points. Elevation gaps are interpolated; at least two valid elevations are needed. Ascent is derived from the course profile, not measured barometric gain.
+- The tracker targets running/hiking, with a 25 km/h reach limit and 250 m off-route rejection. GPS gaps, repeated geometry, and shortcuts can still yield uncertain results. The projected location is distinct from a GPS fix and limited to ten minutes.
+- Route, start time, and stations lock after tracking starts. Name/feed changes remain available. Feed replacement resumes paused tracking. The editor displays feed health and offers a throttled server-side test that includes at least the preceding 24 hours.
+- Links are bearer credentials, with no account recovery or link rotation. Feed URLs never reach viewers, but Garmin MapShare may separately be discoverable by its share name. One device per unprotected feed is supported; redirects and unapproved hosts are rejected.
+- Creation is limited to ten requests per observed client/proxy IP per hour. The rightmost Cloud Run-observed forwarded hop selects the bucket. Old quota records expire. This is abuse friction, not authentication.
+- CSP permits Firebase long polling when WebSockets are unavailable. Referrers expose only the origin; Hosting also sends HSTS. There are no analytics.
 
 ## Verification
 
-Unit tests cover interpolation, stale/future/off-route fixes, loop ambiguity, automatic completion, KML variants, and feed URL restrictions. Emulator tests enforce capability isolation, mutation denial, sanitized responses, optimistic revision checks, and manual completion. Browser tests check desktop/mobile and offline behavior.
+```sh
+npm run typecheck
+npm test
+# With the database/functions emulators running:
+npm run test:rules
+npm run test:integration
+npm run test:scheduler
+```
 
-API and implementation references: [Firebase scheduled functions](https://firebase.google.com/docs/functions/schedule-functions), [Realtime Database web reads](https://firebase.google.com/docs/database/web/read-and-write), [MapLibre raster maps](https://maplibre.org/maplibre-gl-js/docs/examples/map-tiles/), [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
+Browser checks use Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (adjust for another platform). After building and starting the preview, `node tests/review-browser.mjs` verifies offline/reconnection, payload size, stable markers, and large GPX uploads. `node tests/units-browser.mjs` checks imperial units and elevation; `node tests/service-worker.mjs` checks installation behavior.
 
-## Verification against a real Garmin feed
+`tests/production.mjs` creates temporary production records and removes them in a `finally` block using the authenticated Firebase CLI. It tests live updates, mobile layout, archive reload, and Firebase long polling with WebSockets disabled. If cleanup fails, it reports a recovery file. Run only against this project's deployment:
 
-Automated tests mock Garmin; they cannot prove Garmin redirects, account sharing, or timestamp variants in a specific live account. Use the editor's **Test saved Garmin feed** with a working feed, then confirm the last-poll diagnostics and viewer movement. The test is server-side and does not expose the private feed URL. On September 11, 2026, the supplied Garmin feed returned HTTP 200 without redirect; the production fetcher accepted a millisecond ISO d1 filter and returned zero recent positions. The deployed Cloud Function also returned ok with zero positions. Moving-point ingestion and race splits against a live device remain unverified.
+```sh
+RACE_TEST_ORIGIN=https://self-directed-tracker-type-two.web.app node tests/production.mjs
+```
 
-`tests/production.mjs` performs scoped cleanup in a finally block using the authenticated Firebase CLI. If cleanup fails it reports an exact recovery file. Set `RACE_TEST_ORIGIN` only to this project's deployment. Emulator tests require Java 21+; a missing Java installation is an environment limitation, not a test pass.
-
-
-### ETA refinement
-
-ETA uses a 40-minute recent pace window when enough samples exist, with slow positive pace floored at half the overall average. Sparse/zero-movement samples and station dwell use overall pace, which already includes stops and therefore receive no extra dwell allowance. Recent-pace estimates add an explicit fixed ten-minute allowance for each intermediate station. This assumption is not yet configurable. Station dwell requires a recorded split and proximity by both route distance and coordinates; mere approach is not arrival. The viewer reuses one memoized dwell/pace calculation across station ETAs.
-
-Consistent movement following corroborated switchbacks can use the last accepted segment as evidence, avoiding an every-other-fix delay. Corroborated pending positions retain their original timestamps for split interpolation. Isolated ambiguous jumps still wait for confirmation.
-
-Feed diagnostics include at least the previous 24 hours even before the race starts. CSP permits Firebase RTDB long-poll transport hosts so viewers can connect without WebSockets. The production smoke test explicitly disables WebSockets for its viewer. Unused D1 examples and the unreferenced original PNG were removed; the visible WebP topo background and provenance remain.
+Real Garmin connectivity has also been verified from the deployed function: healthy empty results and 145 historical timestamped points using an ISO `d1` filter. Live movement and course-specific split matching still require an active device and matching GPX. Automated scheduler tests mock Garmin.
