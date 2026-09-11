@@ -1,4 +1,4 @@
-const VERSION = "milemark-v8";
+const VERSION = "milemark-v9";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 const offlineClients = new Set();
 const SHELL = VERSION + "-shell";

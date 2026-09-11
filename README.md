@@ -151,3 +151,11 @@ RACE_TEST_ORIGIN=https://self-directed-tracker-type-two.web.app node tests/produ
 ```
 
 Real Garmin connectivity has also been verified from the deployed function: healthy empty results and 145 historical timestamped points using an ISO `d1` filter. Live movement and course-specific split matching still require an active device and matching GPX. Automated scheduler tests mock Garmin.
+
+## Replay a recording
+
+Open `/replay` (also linked from the home page) and upload a GPX course plus a timestamped Garmin KML recording. Use **Play/Pause**, **Restart**, the **time T scrubber**, and speeds from 1× to 600×. Add optional aid stations by mileage or click the route to choose their distance; the finish is included automatically. Progress is displayed in miles and elevation gain in feet.
+
+Replay uses the same KML parser, position acceptance rules, split interpolation, and ETA calculations as live races. Seeking backward rebuilds results so future splits and completion do not leak into earlier times. The race start defaults to the first recorded position; set an earlier start when the recording begins partway into the race. The simulated clock also supports future-dated recordings.
+
+Files remain in browser memory: replay creates no Firebase records, contacts no Garmin feed, and reload clears the session. USGS basemap tiles still load over the network. GPX files are limited to 10 MB; KML files to 5 MB and 10,000 timestamped positions. Untimed KML paths cannot be replayed. The replay shows positions accepted by the live filters, so off-route or implausible points may be rejected.

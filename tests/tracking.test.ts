@@ -404,3 +404,25 @@ test("confirmed switchback motion applies each following fix and preserves pendi
     assert.equal(current.pendingFix, null);
   }
 });
+
+test("replay seeks forward and backward without leaking future splits, including future-dated recordings", async () => {
+  const { ReplayEngine } = await import('../lib/replay');
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  const points = [
+    { lng: 0, lat: 0, at: r.startAt },
+    { lng: .01, lat: 0, at: r.startAt + 1800000 },
+    { lng: .02, lat: 0, at: r.startAt + 3500000 },
+  ];
+  const engine = new ReplayEngine(r, points);
+  assert.equal(engine.seek(r.startAt-1).fix, null);
+  const middle = engine.seek(points[1].at);
+  assert.equal(middle.splits.length, 1);
+  const finish = engine.seek(points[2].at);
+  assert.equal(finish.status, 'complete');
+  assert.equal(finish.splits.length, 2);
+  assert.deepEqual(engine.seek(points[1].at), middle);
+  assert.equal(engine.seek(r.startAt-1).splits.length, 0);
+  assert.deepEqual(engine.seek(points[2].at), finish);
+  assert.equal(r.splits.length, 0);
+});

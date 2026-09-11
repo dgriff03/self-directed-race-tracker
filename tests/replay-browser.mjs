@@ -1,0 +1,25 @@
+import {chromium} from '@playwright/test';
+import assert from 'node:assert/strict';
+const browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],requests=[];
+page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
+try {
+await page.goto(`${process.env.RACE_TEST_ORIGIN||'http://127.0.0.1:4173'}/replay`);
+const base=Date.UTC(2040,0,1),times=[base,base+1800000,base+3600000];
+const gpx='<gpx><trk><trkseg>'+[0,.01,.02].map((x,i)=>`<trkpt lat="40" lon="${-105+x}"><ele>${1000+i*100}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
+const kml='<kml><Document>'+times.map((t,i)=>`<Placemark><TimeStamp><when>${new Date(t).toISOString()}</when></TimeStamp><Point><coordinates>${-105+i*.01},40</coordinates></Point></Placemark>`).join('')+'</Document></kml>';
+await page.locator('input[type=file]').nth(0).setInputFiles({name:'course.gpx',mimeType:'application/gpx+xml',buffer:Buffer.from(gpx)});
+await page.locator('input[type=file]').nth(1).setInputFiles({name:'recording.kml',mimeType:'application/vnd.google-earth.kml+xml',buffer:Buffer.from(kml)});
+await page.getByText('Before start',{exact:true}).waitFor();
+await page.locator('summary').click();await page.getByLabel('Station name',{exact:true}).fill('Test aid');await page.getByLabel('Station distance (mi)').fill('0.4');await page.getByRole('button',{name:'Add station',exact:true}).click();
+const seek=async t=>page.getByRole('slider').fill(String(t));
+await seek(times[2]);await page.getByText('Finished',{exact:true}).waitFor();assert.equal(await page.getByText(/Estimated crossing/).count(),2);
+await seek(times[0]-1000);await page.getByText('Before start',{exact:true}).waitFor();assert.equal(await page.getByText(/Estimated crossing/).count(),0);
+await page.getByRole('button',{name:'Play',exact:true}).click();await page.waitForTimeout(300);await page.getByRole('button',{name:'Pause',exact:true}).click();assert.ok(Number(await page.getByRole('slider').inputValue())>times[0]);
+await page.getByRole('button',{name:'Restart',exact:true}).click();await page.getByText('Before start',{exact:true}).waitFor();
+await seek(times[1]);await page.locator('.map-marker.runner').waitFor();
+await page.screenshot({path:'/tmp/milemark-replay-desktop.png',fullPage:true});
+await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'/tmp/milemark-replay-mobile.png',fullPage:true});
+assert.deepEqual(errors,[]);assert.equal(requests.some(u=>/firebaseio|firebasedatabase|share.garmin|\/api\//.test(u)),false);
+console.log('PASS replay uploads, aid split, finish, backward seek, play/pause/restart, future timestamps, mobile layout, and no race/feed network requests');
+}finally{await browser.close();}

@@ -224,13 +224,13 @@ export function calculateEta(
   }
 }
 
-export function applyFixes(r: Race, fixes: Fix[]): Race {
+export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   let out = structuredClone(r);
   if (out.status === "complete") return out;
   for (const fix of [...fixes].sort((a, b) => a.at - b.at)) {
     if (
       fix.at < out.startAt ||
-      fix.at > Date.now() + 120000 ||
+      fix.at > now + 120000 ||
       fix.at <= Math.max(out.fix?.at ?? 0, out.pendingFix?.at ?? 0)
     )
       continue;

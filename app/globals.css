@@ -1014,3 +1014,29 @@ footer {
 @media (prefers-reduced-transparency: reduce) {
   .bottom-info, footer { background: #fff; }
 }
+
+.replay-controls, .replay-results, .replay-empty { width: min(1100px, calc(100% - 40px)); margin: 24px auto; }
+.replay-controls { display: grid; gap: 20px; }
+.replay-controls label { display: grid; gap: 8px; min-width: 0; }
+.replay-controls input, .replay-controls select { max-width: 100%; min-width: 0; width: 100%; }
+.replay-controls input[type=file] { padding: 12px; background: #f3f5f6; }
+.replay-controls small, .replay-results small { color: #536171; }
+.replay-uploads { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.replay-actions { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.replay-actions label { margin-left: auto; }
+.replay-timeline output { font-size: 1.15rem; font-weight: 650; }
+.replay-controls input[type=range] { accent-color: #e85c26; padding: 0; height: 32px; cursor: pointer; }
+.replay-ends { display: flex; justify-content: space-between; gap: 16px; font-size: .8rem; }
+.replay-controls details { border-top: 1px solid var(--border); padding-top: 20px; }
+.replay-controls summary { cursor: pointer; font-weight: 650; }
+.replay-controls details .button { margin-top: 16px; }
+.replay-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: white; border: 1px solid var(--border); border-radius: 12px; }
+.replay-stats > div { padding: 20px; display: grid; gap: 8px; }
+.replay-stats strong { font-size: 1.25rem; }
+.replay-results > p { padding: 12px; background: rgba(255,255,255,.94); border-radius: 8px; }
+.replay-splits { margin-top: 24px; }
+.replay-split { display: flex; justify-content: space-between; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.replay-split span { display: grid; gap: 6px; }
+.replay-split span:last-child { text-align: right; }
+.replay-empty { padding: 32px; text-align: center; background: rgba(255,255,255,.94); border-radius: 12px; }
+@media(max-width: 650px) { .replay-uploads, .replay-stats { grid-template-columns: 1fr; } .replay-stats > div { padding: 14px 20px; } .replay-ends { font-size: .7rem; } .replay-split { font-size: .85rem; } }

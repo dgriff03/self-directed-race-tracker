@@ -3,12 +3,15 @@ import { createRoot } from "react-dom/client";
 import Home from "./components/race-app";
 import Viewer from "./components/viewer";
 import Editor from "./components/editor";
+import Replay from "./components/replay";
 import "./app/globals.css";
 const path = window.location.pathname;
 const viewer = path.match(/^\/r\/([a-f0-9-]{36})\/?$/i),
   edit = path.match(/^\/edit\/([a-f0-9-]{36})\/?$/i);
 createRoot(document.getElementById("root")!).render(
-  path === "/demo" ? (
+  path === "/replay" || path === "/replay/" ? (
+    <Replay />
+  ) : path === "/demo" ? (
     <Viewer id="demo" />
   ) : viewer ? (
     <Viewer id={viewer[1].toLowerCase()} />

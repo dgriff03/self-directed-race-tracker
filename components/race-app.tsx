@@ -30,6 +30,7 @@ export default function RaceApp() {
           <a className="textlink" href="/demo">
             Explore a demo race →
           </a>
+          <a className="textlink" href="/replay">Replay your GPS recording →</a>
         </div>
         <aside>
           <span className="eyebrow">MADE FOR YOUR SUPPORT CREW</span>
