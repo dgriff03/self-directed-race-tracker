@@ -1,5 +1,35 @@
-const VERSION = "milemark-v12";
+const VERSION = "milemark-v13";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
+const TILE_TEMPLATES = [
+  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+];
+function matchesTile(url) {
+  return TILE_TEMPLATES.some((template) => {
+    const normalized = new URL(template, self.location.origin).href
+      .replace(/%7B/gi, "{")
+      .replace(/%7D/gi, "}");
+    const tokens = normalized.split(/(\{(?:z|x|y|-y|s|r)\})/g);
+    if (
+      !tokens.includes("{z}") ||
+      !tokens.includes("{x}") ||
+      !(tokens.includes("{y}") || tokens.includes("{-y}"))
+    )
+      return false;
+    const pattern = tokens
+      .map((t) =>
+        /^\{/.test(t)
+          ? t === "{s}"
+            ? "[a-z0-9-]+"
+            : t === "{r}"
+              ? "(?:@2x)?"
+              : "[0-9]+"
+          : t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      )
+      .join("");
+    return new RegExp("^" + pattern + "$").test(url.href);
+  });
+}
 const offlineClients = new Set();
 const SHELL = VERSION + "-shell";
 const TILES = VERSION + "-tiles";
@@ -82,7 +112,7 @@ self.addEventListener("fetch", (event) => {
     url.origin === self.location.origin &&
     (/^\/assets\//.test(url.pathname) ||
       ["/favicon.svg", "/manifest.webmanifest"].includes(url.pathname));
-  const tile = url.hostname === "basemap.nationalmap.gov" && url.pathname.startsWith("/arcgis/rest/services/USGSTopo/MapServer/tile/");
+  const tile = matchesTile(url);
   if (!asset && !tile) return;
   event.respondWith(
     (async () => {
@@ -90,12 +120,21 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(req, { ignoreVary: !tile });
       if (cached && !tile) return cached;
       if (cached && tile) {
-        const age = Date.now() - Date.parse(cached.headers.get("date") || "");
-        const ttl =
-          Number(
-            cached.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1] ||
-              604800,
-          ) * 1000;
+        const control = cached.headers.get("cache-control") || "";
+        const savedAt =
+          Number(cached.headers.get("x-milemark-cached-at")) ||
+          Date.parse(cached.headers.get("date") || "");
+        const age =
+          Date.now() - savedAt + Number(cached.headers.get("age") || 0) * 1000;
+        const maxAge = control.match(/max-age=(\d+)/)?.[1];
+        const expires = Date.parse(cached.headers.get("expires") || "");
+        const ttl = /no-cache|no-store/i.test(control)
+          ? 0
+          : maxAge !== undefined
+            ? Number(maxAge) * 1000
+            : Number.isFinite(expires)
+              ? Math.max(0, expires - savedAt)
+              : 604800000;
         if (Number.isFinite(age) && age < ttl) return cached;
       }
       let response;
@@ -105,15 +144,28 @@ self.addEventListener("fetch", (event) => {
         if (cached) return cached;
         throw error;
       }
-      if (response.ok) {
-        await cache.put(req, response.clone());
+      if (
+        response.ok &&
+        !/no-store/i.test(response.headers.get("cache-control") || "")
+      ) {
+        const saved = response.clone();
+        const cacheHeaders = new Headers(saved.headers);
+        cacheHeaders.set("x-milemark-cached-at", String(Date.now()));
+        await cache.put(
+          req,
+          new Response(saved.body, {
+            status: saved.status,
+            statusText: saved.statusText,
+            headers: cacheHeaders,
+          }),
+        );
         if (tile) {
           const keys = await cache.keys();
           for (const key of keys.slice(0, Math.max(0, keys.length - 300)))
             await cache.delete(key);
         }
       }
-      return response;
+      return !response.ok && cached ? cached : response;
     })(),
   );
 });

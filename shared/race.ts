@@ -1,6 +1,12 @@
 export type Coordinate = [number, number];
 export type Station = { id: string; name: string; km: number };
-export type Fix = { lng: number; lat: number; at: number; km?: number };
+export type Fix = {
+  lng: number;
+  lat: number;
+  at: number;
+  km?: number;
+  outboundKm?: number;
+};
 export type Split = { stationId: string; at: number; estimated: boolean };
 export type Race = {
   id: string;
@@ -217,7 +223,7 @@ export function calculateEta(
 
   const dwell = context?.dwell ?? stationDwellStatus(r, now);
   const pace = context?.pace ?? paceEstimate(r);
-  const useOverall = dwell.atStation || pace.source === "overall";
+  const useOverall = pace.source === "overall";
   const effectivePace =
     r.journey?.phase === "returning"
       ? pace.kmh
@@ -430,12 +436,12 @@ export function elevationProgress(
 // Explicit mode for a full, retraced out-and-back GPX (turn at half distance).
 export function validOutAndBack(route: Coordinate[], ds = cumulative(route)) {
   const total = ds.at(-1) ?? 0;
-  if (total < 0.6 || distance(route[0], route.at(-1)!) > 0.075) return false;
+  if (total < 0.6 || distance(route[0], route.at(-1)!) > 0.2) return false;
   for (let i = 0; i <= 100; i++) {
     const km = (total * i) / 200;
     if (
       distance(atDistance(route, ds, km), atDistance(route, ds, total - km)) >
-      0.075
+      0.2
     )
       return false;
   }
@@ -526,7 +532,12 @@ export function setJourneyDirection(
   out.pendingFix = null;
   return out;
 }
-function applyOutAndBackFix(r: Race, fix: Fix, now: number) {
+function applyOutAndBackFix(
+  r: Race,
+  fix: Fix,
+  now: number,
+  confirmedKm?: number,
+) {
   if (fix.at < r.startAt || fix.at > now + 120000 || fix.at <= (r.fix?.at ?? 0))
     return;
   const total = r.distances.at(-1)!,
@@ -550,9 +561,53 @@ function applyOutAndBackFix(r: Race, fix: Fix, now: number) {
     Math.max(0, j.positionKm - reach),
     Math.min(half, j.positionKm + reach),
   );
-  if (match.offKm > 0.25 || match.ambiguous) return;
-  const km = match.km,
-    wasReturning = j.phase === "returning";
+  if (match.offKm > 0.25) return;
+  const pending = r.pendingFix;
+  const km = confirmedKm ?? match.km;
+  const previousKm = previous?.outboundKm ?? j.positionKm;
+  const previousPreviousKm = r.previousFix?.outboundKm;
+  const recentHours =
+    previous && r.previousFix ? (previous.at - r.previousFix.at) / 3600000 : 0;
+  const recentDelta =
+    previousPreviousKm === undefined ? 0 : previousKm - previousPreviousKm;
+  const delta = km - j.positionKm;
+  const consistent =
+    recentHours > 0 &&
+    recentHours <= 0.5 &&
+    hours > 0 &&
+    hours <= 0.5 &&
+    delta * recentDelta >= 0 &&
+    Math.abs(recentDelta) > 0.02 &&
+    Math.abs(delta) <=
+      Math.max(0.15, (Math.abs(recentDelta) / recentHours) * hours * 1.5);
+  const suspicious =
+    (match.ambiguous && !consistent) ||
+    (previous &&
+      Math.abs(delta) > 1 &&
+      Math.abs(delta) / Math.max(hours, 1 / 3600) >
+        Math.max(12, speed(r) * 2.5));
+  const corroborated =
+    pending?.outboundKm !== undefined &&
+    fix.at > pending.at &&
+    Math.abs(km - pending.outboundKm) <=
+      Math.max(0.3, ((fix.at - pending.at) / 3600000) * 25) &&
+    (pending.outboundKm - j.positionKm) * (km - j.positionKm) >= 0 &&
+    (km - pending.outboundKm) * Math.sign(pending.outboundKm - j.positionKm) >=
+      -0.1;
+  if (confirmedKm === undefined && suspicious && !corroborated) {
+    if (!pending || fix.at > pending.at)
+      r.pendingFix = { ...fix, outboundKm: km };
+    return;
+  }
+  if (confirmedKm === undefined && corroborated && pending) {
+    // Reapply the confirmed earlier sample with its original timestamp. It must
+    // contribute to splits and reversal evidence exactly once.
+    r.pendingFix = null;
+    applyOutAndBackFix(r, pending, now, pending.outboundKm);
+    if (r.status !== "complete") applyOutAndBackFix(r, fix, now, km);
+    return;
+  }
+  const wasReturning = j.phase === "returning";
   if (j.phase === "outbound") {
     if (km > j.peakKm) {
       j.peakKm = km;
@@ -583,10 +638,7 @@ function applyOutAndBackFix(r: Race, fix: Fix, now: number) {
   // Use current position on the return so a brief uphill backtrack updates the ETA.
   j.positionKm = km;
   r.journey = j;
-  const progress =
-    j.phase === "returning"
-      ? total - km
-      : j.peakKm;
+  const progress = j.phase === "returning" ? total - km : j.peakKm;
   if (j.phase === "returning") {
     j.returnSamples = [...(j.returnSamples ?? []), { km, at: fix.at }].slice(
       -100,
@@ -618,10 +670,10 @@ function applyOutAndBackFix(r: Race, fix: Fix, now: number) {
     });
   }
   r.previousFix = previous;
-  r.fix = { ...fix, km: progress };
+  r.fix = { ...fix, km: progress, outboundKm: km };
   r.progressKm = progress;
   r.pendingFix = null;
-  r.track = [...r.track, { ...fix, km: progress }].slice(-2000);
+  r.track = [...r.track, { ...fix, km: progress, outboundKm: km }].slice(-2000);
   r.status = "live";
   if (
     j.phase === "returning" &&

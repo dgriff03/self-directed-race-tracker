@@ -10,6 +10,7 @@ import {
   type Coordinate,
 } from "../shared/race";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { preferredBasemap, USGS, OSM } from "../shared/map-tiles.mjs";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 export default function RaceMap({
   race,
@@ -21,6 +22,9 @@ export default function RaceMap({
   onPick?: (km: number) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const [protocol] = useState(
+    () => "milemarkusgs" + crypto.randomUUID().replaceAll("-", ""),
+  );
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const estimateRef = useRef<import("maplibre-gl").Marker | null>(null);
   const routeKey = useMemo(() => JSON.stringify(race.route), [race.route]);
@@ -30,11 +34,31 @@ export default function RaceMap({
         race.stations,
         race.splits,
         race.fix,
-        race.track,
-        race.journey,
+        race.journey?.phase,
+        race.journey?.turnaroundKm,
       ]),
-    [race.stations, race.splits, race.fix, race.track, race.journey],
+    [
+      race.stations,
+      race.splits,
+      race.fix,
+      race.journey?.phase,
+      race.journey?.turnaroundKm,
+    ],
   );
+  const preferred = useMemo(
+    () =>
+      preferredBasemap(
+        race.route,
+        import.meta.env.VITE_MAP_TILE_URL,
+        import.meta.env.VITE_MAP_ATTRIBUTION,
+      ),
+    [routeKey],
+  );
+  const [failedProvider, setFailedProvider] = useState<string | null>(null);
+  const basemap =
+    failedProvider === preferred.url && preferred.url === USGS.url
+      ? OSM
+      : preferred;
   const [ready, setReady] = useState(0);
   const [error, setError] = useState(false);
   const pickRef = useRef(onPick);
@@ -43,9 +67,36 @@ export default function RaceMap({
   raceRef.current = race;
   useEffect(() => {
     let cancelled = false;
+    let removeProtocol: ((name: string) => void) | undefined;
+    setReady(0);
+    setError(false);
     import("maplibre-gl").then((m) => {
       if (cancelled || !element.current) return;
       m.setWorkerUrl(workerUrl);
+      if (basemap.url === USGS.url) {
+        removeProtocol = m.removeProtocol;
+        m.addProtocol(protocol, async (request, controller) => {
+          try {
+            const response = await fetch(
+              request.url.replace(protocol + "://", "https://"),
+              { signal: controller.signal },
+            );
+            if (!response.ok)
+              throw Error(`USGS tile returned ${response.status}`);
+            return {
+              data: await response.arrayBuffer(),
+              cacheControl: response.headers.get("cache-control") ?? undefined,
+              expires: response.headers.get("expires") ?? undefined,
+            };
+          } catch (error) {
+            // MapLibre treats tile 404s as empty, so inspect the HTTP response
+            // here rather than relying solely on its map error event.
+            if (!cancelled && !controller.signal.aborted && navigator.onLine)
+              setFailedProvider(USGS.url);
+            throw error;
+          }
+        });
+      }
       const map = new m.Map({
         container: element.current,
         style: {
@@ -54,14 +105,13 @@ export default function RaceMap({
             base: {
               type: "raster",
               tiles: [
-                import.meta.env.VITE_MAP_TILE_URL ||
-                  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+                basemap.url === USGS.url
+                  ? basemap.url.replace("https://", protocol + "://")
+                  : basemap.url,
               ],
+              maxzoom: basemap.maxzoom,
               tileSize: 256,
-              maxzoom: import.meta.env.VITE_MAP_TILE_URL ? 22 : 16,
-              attribution:
-                import.meta.env.VITE_MAP_ATTRIBUTION ||
-                '<a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noreferrer">USGS The National Map</a>',
+              attribution: basemap.attribution,
             },
           },
           layers: [{ id: "base", type: "raster", source: "base" }],
@@ -75,10 +125,19 @@ export default function RaceMap({
         new m.NavigationControl({ showCompass: false }),
         "top-right",
       );
-      map.on("load", () => {
+      map.on("style.load", () => {
         setReady((v) => v + 1);
       });
-      map.on("error", () => setError(true));
+      map.on("error", (event) => {
+        if (cancelled) return;
+        if (
+          (event as typeof event & { sourceId?: string }).sourceId === "base" &&
+          basemap.url === USGS.url &&
+          navigator.onLine
+        )
+          setFailedProvider(USGS.url);
+        else setError(true);
+      });
       map.on("click", (e) => {
         const r = raceRef.current;
         const match = project(r.route, r.distances, [
@@ -94,8 +153,9 @@ export default function RaceMap({
       estimateRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
+      removeProtocol?.(protocol);
     };
-  }, []);
+  }, [basemap.url]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !race.route.length) return;
@@ -151,7 +211,7 @@ export default function RaceMap({
       line("course", race.route, "#e5672c", 4);
       line(
         "track",
-        race.track.map((p) => [p.lng, p.lat]),
+        raceRef.current.track.map((p) => [p.lng, p.lat]),
         "#153f4a",
         5,
       );
@@ -195,6 +255,23 @@ export default function RaceMap({
       markers.forEach((m) => m.remove());
     };
   }, [ready, routeKey, markerKey]);
+  useEffect(() => {
+    const source = mapRef.current?.getSource("track") as
+      import("maplibre-gl").GeoJSONSource | undefined;
+    if (!ready || !source) return;
+    source.setData(
+      race.track.length < 2
+        ? { type: "FeatureCollection", features: [] }
+        : {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: race.track.map((p) => [p.lng, p.lat]),
+            },
+          },
+    );
+  }, [ready, race.track]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;

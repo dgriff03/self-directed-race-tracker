@@ -7,7 +7,7 @@ Milemark tracks self-directed running and hiking races for organizers and suppor
 - **Live app:** https://self-directed-tracker-type-two.web.app
 - **Firebase project:** `self-directed-tracker-type-two`
 - **Frontend:** React, Vite, and MapLibre GL
-- **Basemap:** USGS Topo, free without an account or API key. Detailed coverage is intended for U.S. races.
+- **Basemap:** USGS Topo for U.S. routes, with OpenStreetMap for global coverage and failed USGS tiles. Neither requires an account or API key.
 - **Backend:** Firebase Realtime Database and Node 22 Cloud Functions in `us-central1`
 - **Access:** separate random UUID viewer and editor links, with no sign-in
 
@@ -88,7 +88,7 @@ flowchart LR
   Scheduler[Cloud Scheduler: every 5 minutes] --> Poll[Cloud Function: pollGarmin]
   Poll -->|Private KML fetch| Garmin[Garmin MapShare]
   Poll --> DB
-  Browser --> Maps[USGS Topo tiles]
+  Browser --> Maps[USGS / OpenStreetMap tiles]
   Browser --> Offline[Service worker + IndexedDB]
 ```
 
@@ -118,9 +118,9 @@ See [System architecture](docs/ARCHITECTURE.md) for lifecycle, security boundari
 
 ### Offline and maps
 
-A previously viewed race can reload offline from the cached app shell and IndexedDB snapshot. Viewed USGS Topo tiles are cached on demand, capped at 300 tiles, with cache lifetime respected and stale tiles available offline. Unvisited areas may be blank offline, but the course and splits remain visible. No private API responses or feed URLs are cached. New service workers wait for old tabs to close before replacing their asset caches.
+A previously viewed race can reload offline from the cached app shell and IndexedDB snapshot. Viewed configured basemap tiles are cached on demand, capped at 300 tiles, with cache lifetime respected and stale tiles available offline. Unvisited areas may be blank offline, but the course and splits remain visible. No private API responses or feed URLs are cached. New service workers wait for old tabs to close before replacing their asset caches.
 
-The basemap uses the public [USGS Topo service](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer), with visible USGS attribution. Tiles use ArcGIS order `/tile/{z}/{y}/{x}`. Native tiles stop at zoom 16 in the app and are enlarged at closer zoom levels. No map API key is needed. `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` can override the provider at build time; custom-provider tiles do not use the USGS service-worker cache.
+The basemap uses the public [USGS Topo service](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer), with visible USGS attribution. Tiles use ArcGIS order `/tile/{z}/{y}/{x}`. Native tiles stop at zoom 16 in the app and are enlarged at closer zoom levels. Outside the coarse U.S. coverage regions, or if a USGS tile request fails while online, the app selects OpenStreetMap with its own attribution. Course overlays initialize without waiting for tiles. Only viewport tiles are requested; there is no prefetch/download-area feature. See the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/). No map API key is needed. `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` can override the provider at build time; the build also adds that exact tile URL template to the service-worker cache allowlist. Unconfigured providers and private requests are never cached. Custom providers must permit this usage; `no-store` responses are not retained.
 
 ### Limits and privacy
 
@@ -158,11 +158,11 @@ Open `/replay` (also linked from the home page) and upload a GPX course plus a t
 
 Replay uses the same KML parser, position acceptance rules, split interpolation, and ETA calculations as live races. Seeking backward rebuilds results so future splits and completion do not leak into earlier times. The race start defaults to the first recorded position; set an earlier start when the recording begins partway into the race. The simulated clock also supports future-dated recordings.
 
-Files remain in browser memory: replay creates no Firebase records, contacts no Garmin feed, and reload clears the session. USGS basemap tiles still load over the network. GPX files are limited to 10 MB; KML files to 25 MB and 10,000 timestamped positions. Untimed KML paths cannot be replayed. The replay shows positions accepted by the live filters, so off-route or implausible points may be rejected.
+Files remain in browser memory: replay creates no Firebase records, contacts no Garmin feed, and reload clears the session. Basemap tiles still load over the network. GPX files are limited to 10 MB; KML files to 25 MB and 100,000 timestamped positions (kept without downsampling). Untimed KML paths cannot be replayed. The replay shows positions accepted by the live filters, so off-route or implausible points may be rejected.
 
 ## Out-and-back trips and early returns
 
-Before tracking starts, enable **Out-and-back · detect early turnaround** in setup/edit. Upload the **full round-trip GPX**, retracing the same trail with the planned turnaround at half the route distance. This mode checks that the outbound and return halves align within 75 meters; it is not for loops or a different descent route. It can also be enabled in `/replay` after uploading a matching course.
+Before tracking starts, enable **Out-and-back · detect early turnaround** in setup/edit. Upload the **full round-trip GPX**, retracing the same trail with the planned turnaround at half the route distance. This mode checks that the outbound and return halves align within 200 meters, allowing minor trail deviations and GPS drift; it is not for loops or a different descent route. It can also be enabled in `/replay` after uploading a matching course.
 
 The tracker matches GPS to the outbound half and follows direction explicitly. An early return requires at least three retreating updates spanning 10 minutes, a retreat of at least 150 meters from the furthest point, and at least 300 meters of outbound progress. A short reversal, duplicate timestamps, or off-route updates do not confirm a turnaround. Sparse transmissions delay detection; polling Garmin more often does not create new positions.
 

@@ -1,3 +1,4 @@
+import { apiBase } from "./api-url";
 import { initializeApp, getApps } from "firebase/app";
 import {
   getDatabase,
@@ -41,10 +42,7 @@ export async function api(
   token?: string,
 ) {
   const c = await config();
-  const base =
-    path === "/races" && !c.emulator
-      ? `https://us-central1-${c.projectId}.cloudfunctions.net/api`
-      : (c.apiBase ?? "/api");
+  const base = apiBase(path, c);
   const r = await fetch(`${base}${path}`, {
     method,
     headers: {

@@ -125,8 +125,8 @@ export default function Replay() {
           throw Error(
             "This KML has no timestamped GPS positions. Use Garmin KML with timestamps or a gx:Track.",
           );
-        if (parsed.length > 10000)
-          throw Error("Use a KML file with at most 10,000 positions.");
+        if (parsed.length > 100000)
+          throw Error("Use a KML file with at most 100,000 positions.");
         setPoints(parsed);
         setKmlName(file.name);
         setStart(parsed[0].at);
@@ -148,7 +148,7 @@ export default function Replay() {
         <p>
           Load a GPX route and Garmin KML recording, then scrub through time.
           Files stay in this browser session; no race is created and Garmin is
-          not polled. Map tiles still load from USGS.
+          not polled. Basemap tiles still load over the network.
         </p>
       </section>
       <section className="replay-controls form-card">
@@ -193,7 +193,7 @@ export default function Replay() {
             />
             <small>
               {kmlName ||
-                "Up to 25 MB · 10,000 positions · timestamps required"}
+                "Up to 25 MB · 100,000 positions · timestamps required"}
             </small>
           </label>
         </div>
