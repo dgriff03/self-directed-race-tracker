@@ -1,0 +1,7 @@
+{
+  "apiKey": "FIREBASE_WEB_API_KEY",
+  "projectId": "YOUR_PROJECT_ID",
+  "appId": "FIREBASE_WEB_APP_ID",
+  "databaseURL": "https://YOUR_DATABASE_NAME.firebaseio.com",
+  "apiBase": "/api"
+}

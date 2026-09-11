@@ -1,0 +1,17 @@
+# Review resolution
+
+1. **Cold offline load:** public Firebase config is precached and network-first with cache fallback. Failed config initialization can retry. Verified a real `/r/:id` in a newly opened offline tab and automatic reconnection.
+2. **Abandoned races:** Garmin polling runs every five minutes and pauses after 24 hours without a fix, measured from start, last fix, or organizer resume. Paused races retain splits and are not marked finished. The editor offers Resume Garmin tracking.
+3. **Bandwidth:** retained the existing database schema and links, but moved the client to individual field subscriptions. Large route fields remain subscribed for legitimate organizer edits; heartbeats only deliver small changed-field messages. A 6,000-point race regression checks heartbeat websocket frames remain below 10 KB. An onValue callback containing a full snapshot is not itself evidence of a full network transfer.
+4. **MapShare links:** supported Garmin share-page URLs normalize to Feed/Share URLs on the server; credentials and unapproved hosts remain rejected.
+5. **Large GPX:** automatically simplifies routes over 6,000 points using iterative Douglas–Peucker with elevation included in the error metric. Endpoints and route order are retained. Simplification can reduce measured distance/ascent, as with any downsampling. The 10 MB upload limit remains.
+6. **Proxy IP extraction:** the alleged missing trust-proxy setting is not confirmed: Google's Functions Framework explicitly enables it. Retained req.ip rather than blindly selecting an untrusted forwarded-header entry. Source: https://github.com/GoogleCloudPlatform/functions-framework-nodejs/blob/main/src/server.ts . The existing quota is abuse friction, not authentication.
+7. **Marker churn:** projected-location marker persists and moves via setLngLat. Static markers do not rebuild on clock ticks or heartbeat updates; their relevant data signature controls updates.
+8. **Viewport reset:** bounds fitting depends on route coordinate content, not array identity. Fresh snapshots of the same route preserve pan/zoom.
+9. **UTC parsing:** timezone-less Time UTC fields receive an explicit UTC suffix, with ISO timestamps using Z. Tested with America/Denver process timezone.
+10. **Elevation gaps:** interior gaps interpolate by along-route distance; edge gaps use the nearest known value. At least two valid elevations are required. A completely missing profile remains unavailable.
+11. **Offline storage:** race snapshots use IndexedDB; old localStorage entries migrate on access. Failed saves show a warning rather than failing silently.
+12. **Delayed ETA:** retains the ETA and shows minutes overdue.
+13. **Basemap:** an API key is not universally required by the OSM tile policy. Attribution, HTTPS, origin referrer, and on-demand-only caching remain. Cached tiles now honor max-age, with a seven-day fallback and stale offline fallback. VITE_MAP_TILE_URL / VITE_MAP_ATTRIBUTION allow a dedicated provider at build time. No paid provider was selected or provisioned. Policy: https://operations.osmfoundation.org/policies/tiles/ .
+
+Validation: course/feed unit tests; TypeScript and frontend/functions builds; scheduler emulator tests covering heartbeat without fixes, errors, finish, expiry; desktop/mobile units test; real-race offline/reconnect and websocket payload regression; 16,000-point GPX upload with missing elevation; stable marker identity across timer ticks.

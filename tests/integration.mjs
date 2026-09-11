@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:5001/demo-paceline/us-central1/api';
+const body={name:'Integration Race',startAt:Date.now()+3600000,route:[[-105,40],[-105.01,40.01],[-105.02,40.02]],elevationsM:[1000,1100,1050],stations:[{id:crypto.randomUUID(),name:'Aid',km:1}],feedUrl:'https://share.garmin.com/Feed/Share/SECRET-TEST-FEED'};
+async function call(path,method='GET',data,token){const r=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(data?{body:JSON.stringify(data)}:{})});return {status:r.status,data:await r.json()};}
+const created=await call('/races','POST',body);assert.equal(created.status,201,JSON.stringify(created));assert.notEqual(created.data.id,created.data.editToken);const {id,editToken}=created.data;
+const edit=await call('/edit','GET',undefined,editToken);assert.equal(edit.status,200);assert.equal(edit.data.race.name,body.name);assert.deepEqual(edit.data.race.elevationsM,[1000,1100,1050]);assert.equal(JSON.stringify(edit).includes('SECRET-TEST-FEED'),false);
+const pub=await fetch(`http://127.0.0.1:9000/races/${id}.json?ns=demo-paceline`).then(r=>r.json());assert.equal(pub.name,body.name);assert.equal(JSON.stringify(pub).includes('SECRET-TEST-FEED'),false);assert.equal(JSON.stringify(pub).includes(editToken),false);
+assert.equal((await call('/edit','GET',undefined,id)).status,404);
+const updated=await call('/edit','PUT',{...body,elevationsM:undefined,name:'Updated race',revision:1},editToken);assert.equal(updated.status,200,JSON.stringify(updated));assert.equal(updated.data.race.revision,2);assert.deepEqual(updated.data.race.elevationsM,[1000,1100,1050]);
+assert.equal((await call('/edit','PUT',{...body,revision:1},editToken)).status,409);
+assert.equal((await call('/races','POST',{...body,elevationsM:[1000]})).status,400);
+await fetch(`http://127.0.0.1:9000/races/${id}/trackingPaused.json?ns=demo-paceline`,{method:'PUT',headers:{Authorization:'Bearer owner'},body:'true'});
+assert.equal((await call('/edit','POST',{action:'resume'},editToken)).status,200);
+assert.equal((await call('/edit','GET',undefined,editToken)).data.race.trackingPaused,false);
+assert.equal((await call('/edit','POST',{action:'complete'},editToken)).status,200);
+const done=await call('/edit','GET',undefined,editToken);assert.equal(done.data.race.status,'complete');
+assert.equal((await call('/races','POST',{...body,feedUrl:'https://localhost/private'})).status,400);
+console.log('PASS: create, independent capabilities, sanitized reads, edit authorization, revision conflict, completion and SSRF validation.');
