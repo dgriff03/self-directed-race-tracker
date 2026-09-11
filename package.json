@@ -16,7 +16,11 @@
     "build:functions": "npm --prefix functions run build",
     "test:rules": "tsx --test tests/rules.test.ts",
     "test:scheduler": "node tests/scheduler.mjs",
-    "test:integration": "node tests/integration.mjs"
+    "test:integration": "node tests/integration.mjs",
+    "test:replay": "node tests/replay-browser.mjs",
+    "test:outback": "node tests/outback-browser.mjs",
+    "test:maps": "node tests/map-fallback-browser.mjs && node tests/tile-cache.mjs",
+    "test:browser": "npm run test:replay && npm run test:outback && npm run test:maps"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

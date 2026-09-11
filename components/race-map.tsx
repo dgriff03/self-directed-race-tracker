@@ -315,7 +315,10 @@ export default function RaceMap({
           <i className="line-key" /> Race route
         </span>
         <span>
-          <i className="dot-key" /> Completed
+          <i className="completed-key" /> Completed
+        </span>
+        <span>
+          <i className="location-key" /> Last known location
         </span>
         {estimatedKm !== undefined && (
           <span>

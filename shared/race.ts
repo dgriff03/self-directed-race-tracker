@@ -474,9 +474,9 @@ export function journeyMessage(r: Race) {
   const j = r.journey;
   if (!r.outAndBack) return "";
   if (j?.phase !== "returning")
-    return "Out-and-back · outbound. Early return detection requires three return updates over at least 10 minutes and 0.1 mi of retreat.";
+    return "Out-and-back · outbound. Early return detection requires three return updates over at least 10 minutes and at least 0.31 mi of retreat, with no new outbound peak in that window.";
   const early = j.turnaroundKm! < r.distances.at(-1)! / 2 - 0.075;
-  return `${r.status === "complete" ? "Returned to start" : early ? "Returning early" : "Returning"} · Turnaround at ${kmToMiles(j.turnaroundKm!).toFixed(2)} mi. ${r.status === "complete" ? "" : paceEstimate(r).source === "overall" ? "Finish ETA is provisional until return pace is established." : "Finish ETA uses observed return pace."}`;
+  return `${r.status === "complete" ? "Returned to start" : early ? "Returning early" : "Returning"} · Turnaround at ${kmToMiles(j.turnaroundKm!).toFixed(2)} mi. ${r.status === "complete" ? "" : paceEstimate(r).source === "overall" ? "Finish ETA is provisional until return pace is established." : "Finish ETA uses observed return pace."} Distance shows current route progress and can decrease if you backtrack; the ETA follows your current position.`;
 }
 export function journeyElevation(r: Race) {
   const original = elevationProgress(r.distances, r.elevationsM, r.progressKm);
@@ -528,7 +528,19 @@ export function setJourneyDirection(
   j.reverseCount = 0;
   j.reverseAt = 0;
   out.fix = { ...out.fix!, km: out.progressKm };
-  out.previousFix = null;
+  if (out.previousFix) {
+    const total = out.distances.at(-1)!;
+    const outboundKm =
+      out.previousFix.outboundKm ??
+      (r.journey!.phase === "returning"
+        ? total - (out.previousFix.km ?? total)
+        : (out.previousFix.km ?? 0));
+    out.previousFix = {
+      ...out.previousFix,
+      outboundKm,
+      km: direction === "returning" ? total - outboundKm : outboundKm,
+    };
+  }
   out.pendingFix = null;
   return out;
 }
@@ -612,6 +624,8 @@ function applyOutAndBackFix(
     if (km > j.peakKm) {
       j.peakKm = km;
       j.peakAt = fix.at;
+      j.reverseCount = 0;
+      j.reverseAt = 0;
     }
     if (j.rearmKm !== undefined && km >= j.rearmKm) delete j.rearmKm;
     if (km < j.positionKm - 0.02 && j.peakKm - km >= 0.05) {
@@ -624,10 +638,11 @@ function applyOutAndBackFix(
     const normalReturn = j.peakKm >= half - 0.075 && km < j.peakKm - 0.05;
     const earlyReturn =
       j.rearmKm === undefined &&
-      j.peakKm >= 0.3 &&
-      j.peakKm - km >= 0.15 &&
+      j.peakKm >= 0.5 &&
+      j.peakKm - km >= 0.5 &&
       j.reverseCount >= 3 &&
-      fix.at - j.reverseAt >= 600000;
+      fix.at - j.reverseAt >= 600000 &&
+      fix.at - j.peakAt >= 600000;
     if (normalReturn || earlyReturn) {
       j.phase = "returning";
       j.turnaroundKm = j.peakKm;

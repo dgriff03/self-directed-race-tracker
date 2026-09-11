@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Header } from "./viewer";
 import RaceMap from "./race-map";
 import { parseGpxWithElevation } from "../lib/gpx";
-import { parseKml } from "../shared/kml";
+import { parseReplayKml } from "../lib/parse-replay-kml";
 import { ReplayEngine } from "../lib/replay";
 import {
   validOutAndBack,
@@ -42,11 +42,28 @@ export default function Replay() {
   const [error, setError] = useState(""),
     [playing, setPlaying] = useState(false),
     [rate, setRate] = useState(60),
-    [cursor, setCursor] = useState(0),
+    [cursor, setActualCursor] = useState(0),
     [start, setStart] = useState(0);
   const [stationName, setStationName] = useState(""),
     [stationMiles, setStationMiles] = useState("");
   const uploads = useRef({ gpx: 0, kml: 0 });
+  const [scrubCursor, setScrubCursor] = useState<number | null>(null);
+  const setCursor = (value: number | ((t: number) => number)) => {
+    setScrubCursor(null);
+    setActualCursor(value);
+  };
+  useEffect(() => {
+    if (scrubCursor === null) return;
+    const timer = setTimeout(() => {
+      setActualCursor(scrubCursor);
+      setScrubCursor(null);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [scrubCursor]);
+  const [readingKml, setReadingKml] = useState(false);
+  const uploadController = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadController.current?.abort(), []);
+
   const ds = useMemo(() => (course ? cumulative(course.route) : []), [course]);
   const total = ds.at(-1) ?? 0;
   const initial = useMemo<Race | null>(
@@ -103,6 +120,13 @@ export default function Replay() {
   async function upload(kind: "gpx" | "kml", file?: File) {
     if (!file) return;
     const version = ++uploads.current[kind];
+    let controller: AbortController | undefined;
+    if (kind === "kml") {
+      uploadController.current?.abort();
+      controller = new AbortController();
+      uploadController.current = controller;
+      setReadingKml(true);
+    }
     setPlaying(false);
     setError("");
     try {
@@ -120,20 +144,19 @@ export default function Replay() {
         setStations([]);
         setCursor(lower);
       } else {
-        const parsed = parseKml(text, 25_000_000);
-        if (!parsed.length)
-          throw Error(
-            "This KML has no timestamped GPS positions. Use Garmin KML with timestamps or a gx:Track.",
-          );
-        if (parsed.length > 100000)
-          throw Error("Use a KML file with at most 100,000 positions.");
+        const parsed = await parseReplayKml(text, controller!.signal);
+        if (version !== uploads.current[kind]) return;
         setPoints(parsed);
         setKmlName(file.name);
         setStart(parsed[0].at);
         setCursor(parsed[0].at - 1000);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not read the file.");
+      if (version === uploads.current[kind])
+        setError(e instanceof Error ? e.message : "Could not read the file.");
+    } finally {
+      if (kind === "kml" && version === uploads.current[kind])
+        setReadingKml(false);
     }
   }
   const dwell = race ? stationDwellStatus(race, cursor) : null,
@@ -152,6 +175,11 @@ export default function Replay() {
         </p>
       </section>
       <section className="replay-controls form-card">
+        {readingKml && (
+          <p role="status">
+            Reading KML recording… You can replace the file to cancel.
+          </p>
+        )}
         {course && (
           <label className="direction-choice">
             <input
@@ -234,7 +262,8 @@ export default function Replay() {
               <button
                 className="button dark"
                 onClick={() => {
-                  if (!playing && cursor >= last) setCursor(lower);
+                  if (!playing && scrubCursor !== null) setCursor(scrubCursor);
+                  else if (!playing && cursor >= last) setCursor(lower);
                   setPlaying(!playing);
                 }}
               >
@@ -266,7 +295,9 @@ export default function Replay() {
             <label className="replay-timeline">
               Replay time T
               <output>
-                {stamp(cursor)} · elapsed {elapsed(cursor - start)}
+                {stamp(scrubCursor ?? cursor)} · elapsed{" "}
+                {elapsed((scrubCursor ?? cursor) - start)}
+                {scrubCursor !== null ? " · Seeking…" : ""}
               </output>
               <input
                 aria-label="Replay time T"
@@ -274,10 +305,16 @@ export default function Replay() {
                 min={lower}
                 max={last}
                 step="1"
-                value={cursor}
+                value={scrubCursor ?? cursor}
+                onPointerUp={() => {
+                  if (scrubCursor !== null) setCursor(scrubCursor);
+                }}
+                onKeyUp={() => {
+                  if (scrubCursor !== null) setCursor(scrubCursor);
+                }}
                 onChange={(e) => {
                   setPlaying(false);
-                  setCursor(Number(e.target.value));
+                  setScrubCursor(Number(e.target.value));
                 }}
               />
             </label>

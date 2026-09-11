@@ -41,3 +41,13 @@ Additional real-data verification: the deployed Cloud Function parsed 145 histor
 6. **Replay serialization: reported 10 Hz behavior was not reproduced.** `ReplayEngine.seek()` returns the identical race object between recorded fixes. Added an identity regression test. Also removed full track/journey serialization from the marker signature; the completed track now updates independently of markers, including asynchronous realtime track-field updates. Full marker values still participate, so same-count station renames/moves remain visible.
 7. **Out-and-back route tolerance: relaxed.** Mirrored route samples and endpoints now allow 200 meters of deviation. Different return trails still fail validation. The planned midpoint assumption remains; this is not general loop matching.
 8. **Dense replay capacity: increased.** Replay accepts up to 100,000 timestamped points within the existing 25 MB file limit. Positions are retained instead of downsampled, preserving stop/turn evidence. Browser and engine tests cover 17,280 five-second samples spanning a day.
+
+## Follow-up review: conservative returns and replay responsiveness
+
+- Switchback corroboration and global basemap fallback were already deployed in `640605e`; retained their regression tests.
+- Increased automatic early-return retreat to 500 m, required no new peak in the evidence window, and reset reversal evidence on every new peak. Added tests for a 200 m retreat/linger and peak reset. Manual direction controls remain available.
+- Kept current-position return progress for correct ETA arithmetic and added an explicit viewer/replay explanation that backtracking can decrease it.
+- Moved replay KML validation/parsing into a cancellable worker with loading feedback. Worker assets are included by the existing offline precache build. Debounced slider updates by 150 ms and flush on pointer/key release.
+- Manual direction changes retain and remap the previous GPS sample, preserving dwell movement evidence.
+- The legend now uses a dark line for Completed and an orange dot for Last known location.
+- Added named npm scripts for replay, out-and-back and map browser tests, plus `test:browser` to run them together. Prerequisites are documented in README.

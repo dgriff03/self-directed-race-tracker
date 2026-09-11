@@ -11,5 +11,6 @@ vm.runInNewContext(readFileSync('dist/client/sw.js','utf8'),{
 let completion;handlers.install({waitUntil:p=>completion=p});await completion;
 assert.ok(urls.includes('/index.html'));
 assert.ok(urls.some(u=>u.includes('maplibre-gl-')));
+assert.ok(urls.some(u=>u.includes('kml-worker-')));
 assert.equal(skipped,false);
 console.log('PASS: missing optional config preserves shell installation; updates do not force activation over open tabs.');

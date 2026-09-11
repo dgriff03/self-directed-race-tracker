@@ -4,6 +4,8 @@ const browser=await chromium.launch({executablePath:'/Applications/Google Chrome
 const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],requests=[];
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
 try {
+let releaseWorker;const workerGate=new Promise(resolve=>releaseWorker=resolve);
+await page.route('**/assets/kml-worker-*.js',async route=>{await workerGate;await route.continue();});
 await page.route('https://basemap.nationalmap.gov/**', route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=','base64')}));
 await page.goto(`${process.env.RACE_TEST_ORIGIN||'http://127.0.0.1:4173'}/replay`);
 const base=Date.UTC(2040,0,1),times=Array.from({length:7},(_,i)=>base+i*600000);
@@ -13,6 +15,8 @@ await page.locator('input[type=file]').nth(0).setInputFiles({name:'course.gpx',m
 await page.locator('input[type=file]').nth(1).setInputFiles({name:'too-large.kml',mimeType:'application/vnd.google-earth.kml+xml',buffer:Buffer.alloc(25_000_001,32)});
 await page.getByRole('alert').filter({hasText:'limit 25 MB'}).waitFor();
 await page.locator('input[type=file]').nth(1).setInputFiles({name:'recording.kml',mimeType:'application/vnd.google-earth.kml+xml',buffer:Buffer.from(kml.replace('<Document>', '<Document><!--'+ ' '.repeat(24_000_000) +'-->'))});
+await page.getByText('Reading KML recording… You can replace the file to cancel.',{exact:true}).waitFor();
+assert.equal(await page.getByRole('heading',{name:'Replay a race'}).isVisible(),true);releaseWorker();
 await page.getByText('Before start',{exact:true}).waitFor();
 await page.getByLabel('Station name',{exact:true}).fill('Test aid');await page.getByLabel('Station distance (mi)').fill('0.4');await page.getByRole('button',{name:'Add station',exact:true}).click();
 const seek=async t=>page.getByRole('slider').fill(String(t));
@@ -29,5 +33,5 @@ await seek(times[1]);await page.locator('.map-marker.runner').waitFor();
 await page.screenshot({path:'/tmp/milemark-replay-desktop.png',fullPage:true});
 await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'/tmp/milemark-replay-mobile.png',fullPage:true});
 assert.deepEqual(errors,[]);assert.equal(requests.some(u=>/firebaseio|firebasedatabase|share.garmin|\/api\//.test(u)),false);
-console.log('PASS replay uploads, aid split, finish, backward seek, play/pause/restart, future timestamps, mobile layout, and no race/feed network requests');
+console.log('PASS worker loading feedback, replay uploads, aid split, finish, backward seek, play/pause/restart, future timestamps, mobile layout, and no race/feed network requests');
 }finally{await browser.close();}

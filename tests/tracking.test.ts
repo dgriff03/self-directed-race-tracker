@@ -500,3 +500,17 @@ test('out-and-back switchbacks corroborate pending fixes, preserve split times a
  for(const [lng,at] of [[.002,r.startAt+3000000],[.001,r.startAt+3500000]]){current=applyFixes(current,[{lng,lat:.0005,at}]);assert.equal(current.fix?.at,at);assert.equal(current.pendingFix,null);}
  current=setJourneyDirection(current,'returning');const back={lng:.002,lat:.0005,at:r.startAt+4000000};current=applyFixes(current,[back],r.startAt+6000000);assert.equal(current.fix?.at,back.at);current=applyFixes(current,[{lng:.003,lat:.0005,at:r.startAt+4600000}],r.startAt+6000000);assert.equal(current.previousFix?.at,back.at);current=applyFixes(current,[{lng:.004,lat:.0005,at:r.startAt+5200000}],r.startAt+6000000);assert.equal(current.fix?.at,r.startAt+5200000);assert.equal(current.pendingFix,null);
 });
+
+test('a 200m retreat and lingering do not trigger early return; a new peak resets evidence',()=>{
+ const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.stations=[];
+ const points=[0,.01,.0094,.0088,.0082,.0082,.0101].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
+ const retreat=applyFixes(r,points.slice(0,6),points[5].at);assert.equal(retreat.journey?.phase,'outbound');
+ const advanced=applyFixes(retreat,[points[6]],points[6].at);assert.equal(advanced.journey?.reverseCount,0);assert.equal(advanced.journey?.reverseAt,0);
+});
+test('manual turnaround retains movement evidence so it cannot manufacture dwell',()=>{
+ const r=race();r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;const total=r.distances.at(-1)!;
+ r.progressKm=.8;const at=r.startAt+3600000;const point=atDistance(r.route,r.distances,.8),prev=atDistance(r.route,r.distances,.6);
+ r.fix={lng:point[0],lat:point[1],at,km:.8,outboundKm:.8};r.previousFix={lng:prev[0],lat:prev[1],at:at-600000,km:.6,outboundKm:.6};
+ r.journey={phase:'outbound',positionKm:.8,peakKm:.8,peakAt:at,reverseAt:0,reverseCount:0};r.stations=[{id:'return-aid',name:'Return aid',km:total-.8}];r.splits=[{stationId:'return-aid',at:r.startAt,estimated:true}];
+ const turned=setJourneyDirection(r,'returning');assert.equal(turned.previousFix?.at,r.previousFix.at);assert.equal(stationDwellStatus(turned,at).atStation,false);
+});
