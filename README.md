@@ -97,6 +97,6 @@ API and implementation references: [Firebase scheduled functions](https://fireba
 
 ## Verification against a real Garmin feed
 
-Automated tests mock Garmin; they cannot prove Garmin redirects, account sharing, or timestamp variants in a specific live account. Use the editor's **Test saved Garmin feed** with a working feed, then confirm the last-poll diagnostics and viewer movement. The test is server-side and does not expose the private feed URL. A live feed has not yet been supplied for an end-to-end verification.
+Automated tests mock Garmin; they cannot prove Garmin redirects, account sharing, or timestamp variants in a specific live account. Use the editor's **Test saved Garmin feed** with a working feed, then confirm the last-poll diagnostics and viewer movement. The test is server-side and does not expose the private feed URL. On September 11, 2026, the supplied Garmin feed returned HTTP 200 without redirect; the production fetcher accepted a millisecond ISO d1 filter and returned zero recent positions. The deployed Cloud Function also returned ok with zero positions. Moving-point ingestion and race splits against a live device remain unverified.
 
 `tests/production.mjs` performs scoped cleanup in a finally block using the authenticated Firebase CLI. If cleanup fails it reports an exact recovery file. Set `RACE_TEST_ORIGIN` only to this project's deployment. Emulator tests require Java 21+; a missing Java installation is an environment limitation, not a test pass.

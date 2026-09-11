@@ -27,4 +27,4 @@ Validation: course/feed unit tests; TypeScript and frontend/functions builds; sc
 - Service-worker config precaching is optional; updates wait for old tabs to close before activating and clearing old caches, protecting old lazy bundles.
 - Normalized uppercase UUIDs, memoized map geometry signatures, included dates with times, added latency copy, quota cleanup, HSTS and CSP, and automatic production-test cleanup.
 - Rewrote architecture documentation to match current behavior.
-- A live Garmin account check remains unverified until a working feed or race edit link is supplied. No claim of end-to-end Garmin validation is made.
+- Garmin connectivity and empty-feed handling were verified on September 11, 2026 with the organizer-supplied feed, both locally through the production fetcher and from the deployed Cloud Function. HTTP 200, no redirect, millisecond ISO d1 accepted, zero recent positions. Temporary verification data was removed. Moving-device ingestion and live splits remain unverified.
