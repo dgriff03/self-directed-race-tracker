@@ -116,7 +116,7 @@ export default function RaceMap({
         color: string,
         width: number,
       ) => {
-        const data: any = {
+        const data: any = coordinates.length < 2 ? { type: "FeatureCollection", features: [] } : {
           type: "Feature",
           properties: {},
           geometry: { type: "LineString", coordinates },
@@ -137,8 +137,7 @@ export default function RaceMap({
       };
       line("course-outline", race.route, "#fff", 8);
       line("course", race.route, "#e5672c", 4);
-      if (race.track.length > 1)
-        line(
+      line(
           "track",
           race.track.map((p) => [p.lng, p.lat]),
           "#153f4a",
@@ -227,7 +226,7 @@ export default function RaceMap({
           <i className="line-key" /> Race route
         </span>
         <span>
-          <i className="dot-key" /> Last known
+          <i className="dot-key" /> Completed
         </span>
         {estimatedKm !== undefined && (
           <span>

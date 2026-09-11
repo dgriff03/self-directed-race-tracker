@@ -1,13 +1,14 @@
-import {chromium} from '@playwright/test';
+import {chromium, expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 const browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],requests=[];
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
 try {
+await page.route('https://basemap.nationalmap.gov/**', route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=','base64')}));
 await page.goto(`${process.env.RACE_TEST_ORIGIN||'http://127.0.0.1:4173'}/replay`);
-const base=Date.UTC(2040,0,1),times=[base,base+1800000,base+3600000];
+const base=Date.UTC(2040,0,1),times=Array.from({length:7},(_,i)=>base+i*600000);
 const gpx='<gpx><trk><trkseg>'+[0,.01,.02].map((x,i)=>`<trkpt lat="40" lon="${-105+x}"><ele>${1000+i*100}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-const kml='<kml><Document>'+times.map((t,i)=>`<Placemark><TimeStamp><when>${new Date(t).toISOString()}</when></TimeStamp><Point><coordinates>${-105+i*.01},40</coordinates></Point></Placemark>`).join('')+'</Document></kml>';
+const kml='<kml><Document>'+times.map((t,i)=>`<Placemark><TimeStamp><when>${new Date(t).toISOString()}</when></TimeStamp><Point><coordinates>${-105+i*.02/6},40</coordinates></Point></Placemark>`).join('')+'</Document></kml>';
 await page.locator('input[type=file]').nth(0).setInputFiles({name:'course.gpx',mimeType:'application/gpx+xml',buffer:Buffer.from(gpx)});
 await page.locator('input[type=file]').nth(1).setInputFiles({name:'too-large.kml',mimeType:'application/vnd.google-earth.kml+xml',buffer:Buffer.alloc(25_000_001,32)});
 await page.getByRole('alert').filter({hasText:'limit 25 MB'}).waitFor();
@@ -15,8 +16,13 @@ await page.locator('input[type=file]').nth(1).setInputFiles({name:'recording.kml
 await page.getByText('Before start',{exact:true}).waitFor();
 await page.getByLabel('Station name',{exact:true}).fill('Test aid');await page.getByLabel('Station distance (mi)').fill('0.4');await page.getByRole('button',{name:'Add station',exact:true}).click();
 const seek=async t=>page.getByRole('slider').fill(String(t));
-await seek(times[2]);await page.getByText('Finished',{exact:true}).waitFor();assert.equal(await page.getByText(/Estimated crossing/).count(),2);
+await page.locator('.maplibregl-canvas').waitFor();await page.waitForTimeout(2500);
+const completedPixels=async()=>page.evaluate(async bytes=>{const bitmap=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/png'}));const canvas=new OffscreenCanvas(bitmap.width,bitmap.height),ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);const pixels=ctx.getImageData(0,0,bitmap.width,bitmap.height).data;let count=0;for(let i=0;i<pixels.length;i+=4)if(Math.abs(pixels[i]-21)<4&&Math.abs(pixels[i+1]-63)<4&&Math.abs(pixels[i+2]-74)<4)count++;return count;},Array.from(await page.locator('.maplibregl-canvas').screenshot()));
+const initialPixels=await completedPixels();
+await seek(times[6]);await page.getByText('Finished',{exact:true}).waitFor();assert.equal(await page.getByText(/Estimated crossing/).count(),2);await expect.poll(completedPixels).toBeGreaterThan(initialPixels+100);
 await seek(times[0]-1000);await page.getByText('Before start',{exact:true}).waitFor();assert.equal(await page.getByText(/Estimated crossing/).count(),0);
+await expect(page.locator('.map-marker.runner')).toHaveCount(0);
+await expect.poll(completedPixels,{timeout:10000}).toBeLessThanOrEqual(initialPixels+20);
 await page.getByRole('button',{name:'Play',exact:true}).click();await page.waitForTimeout(300);await page.getByRole('button',{name:'Pause',exact:true}).click();assert.ok(Number(await page.getByRole('slider').inputValue())>times[0]);
 await page.getByRole('button',{name:'Restart',exact:true}).click();await page.getByText('Before start',{exact:true}).waitFor();
 await seek(times[1]);await page.locator('.map-marker.runner').waitFor();
