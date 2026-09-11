@@ -18,16 +18,21 @@ let configPromise: Promise<Config> | undefined;
 export function config() {
   return (configPromise ??= fetch("/firebase-config.json", {
     cache: "no-store",
-  }).then(async (r) => {
-    if (!r.ok)
-      throw Error(
-        "Firebase is not connected yet. Add your project configuration to enable live races.",
-      );
-    const c = (await r.json()) as Config;
-    if (!c.projectId || !c.databaseURL)
-      throw Error("Firebase project configuration is incomplete.");
-    return c;
-  }).catch((error) => { configPromise = undefined; throw error; }));
+  })
+    .then(async (r) => {
+      if (!r.ok)
+        throw Error(
+          "Firebase is not connected yet. Add your project configuration to enable live races.",
+        );
+      const c = (await r.json()) as Config;
+      if (!c.projectId || !c.databaseURL)
+        throw Error("Firebase project configuration is incomplete.");
+      return c;
+    })
+    .catch((error) => {
+      configPromise = undefined;
+      throw error;
+    }));
 }
 export async function api(
   path: string,
@@ -36,7 +41,11 @@ export async function api(
   token?: string,
 ) {
   const c = await config();
-  const r = await fetch(`${c.apiBase ?? "/api"}${path}`, {
+  const base =
+    path === "/races" && !c.emulator
+      ? `https://us-central1-${c.projectId}.cloudfunctions.net/api`
+      : (c.apiBase ?? "/api");
+  const r = await fetch(`${base}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -79,20 +88,48 @@ export async function subscribe(
     onConnection(s.val() === true),
   );
   // Subscribe at field boundaries: route geometry is never resent with a heartbeat.
-  const fields: (keyof Race)[] = ["id", "name", "startAt", "route", "distances", "elevationsM", "stations", "status", "progressKm", "fix", "previousFix", "splits", "heartbeatAt", "feedOk", "finishedAt", "revision", "track", "trackingPaused"];
+  const fields: (keyof Race)[] = [
+    "id",
+    "name",
+    "startAt",
+    "route",
+    "distances",
+    "elevationsM",
+    "stations",
+    "status",
+    "progressKm",
+    "fix",
+    "previousFix",
+    "splits",
+    "heartbeatAt",
+    "feedOk",
+    "finishedAt",
+    "revision",
+    "track",
+    "trackingPaused",
+  ];
   const value: any = {};
   const loaded = new Set<string>();
   let queued = false;
-  const stops = fields.map(key => onValue(ref(db, `races/${id}/${key}`), snapshot => {
-    value[key] = snapshot.val();
-    loaded.add(key);
-    if (loaded.size === fields.length && !queued) {
-      queued = true;
-      queueMicrotask(() => { queued = false; onRace(value.id ? normalize({...value}) : null); });
-    }
-  }, onError));
+  const stops = fields.map((key) =>
+    onValue(
+      ref(db, `races/${id}/${key}`),
+      (snapshot) => {
+        value[key] = snapshot.val();
+        loaded.add(key);
+        if (loaded.size === fields.length && !queued) {
+          queued = true;
+          queueMicrotask(() => {
+            queued = false;
+            onRace(value.id ? normalize({ ...value }) : null);
+          });
+        }
+      },
+      onError,
+    ),
+  );
   return () => {
     stopConnection();
-    stops.forEach(stop => stop());
+    stops.forEach((stop) => stop());
   };
 }

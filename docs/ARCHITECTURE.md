@@ -1,271 +1,46 @@
-# Milemark System Architecture
+# Milemark architecture
 
-Milemark is a self-directed race tracking platform designed for desktop and mobile support crews. It provides live GPS tracking, course progression, aid station ETAs, and interpolated split times using Garmin inReach satellite feeds and OpenStreetMap raster tiles rendered via MapLibre GL.
+Milemark is a React/Vite single-page app backed by Firebase Hosting, Realtime Database, and two Node 22 Cloud Functions in us-central1. MapLibre draws the GPX route, aid stations, confirmed track and location, and an optional estimated marker. The app uses independent UUID viewer and edit links; there are no accounts.
 
----
+## Routes and frontend
 
-## 1. High-Level System Architecture
+`client.tsx` selects `/`, `/setup`, `/edit/:token`, `/r/:id`, or `/demo`. UUIDs are normalized to lowercase. Production runs the Vite SPA; alternate Next/Vinext/Cloudflare starter routes have been removed. MapLibre geometry and marker update keys are memoized, bounds fit only when the actual route changes, and the estimated marker moves without rebuilding other markers.
 
-```mermaid
-flowchart TD
-    subgraph Client ["Browser / Mobile Client (React 19 + MapLibre GL)"]
-        UI["SPA Views (/setup, /edit/:token, /r/:id, /demo)"]
-        SW["Service Worker (sw.js)\nApp Shell & Tile Cache"]
-        LS["LocalStorage\nRace Snapshots"]
-        RTDBC["Firebase RTDB Client\n(WebSocket Subscription)"]
-    end
+GPX parsing accepts files up to 10 MB. Routes exceeding 6,000 points are simplified with iterative Douglas–Peucker using both horizontal and elevation error. Missing elevation is interpolated by course distance; edge gaps use the nearest known elevation. Profiles with fewer than two valid elevations remain unavailable. Storage uses kilometers and meters; UI uses miles, feet, and minutes per mile. Completed ascent is estimated from the GPX profile at confirmed route progress.
 
-    subgraph Firebase ["Firebase Cloud Infrastructure (us-central1)"]
-        FHost["Firebase Hosting\n(CDN & SPA Fallback)"]
-        API["Cloud Function: api\n(/api/races, /api/edit)"]
-        Scheduler["Scheduled Cloud Function: pollGarmin\n(1-Minute Cron)"]
-        RTDB[("Firebase Realtime Database")]
-    end
+## Backend and storage
 
-    subgraph External ["External Services"]
-        Garmin["Garmin inReach / MapShare\n(KML Feed)"]
-        OSM["OpenStreetMap\n(Raster Tiles)"]
-    end
+- `api` handles creation and bearer-authorized edit, completion, resume, and test-feed actions. It validates route/station constraints, normalizes Garmin MapShare links, and never returns the feed URL. Post-start route/station checks compare values rather than object serialization order, allowing name and feed edits. Saving a new feed also resumes a paused job.
+- `pollGarmin` runs **every five minutes**, independent of viewers. It queries active jobs, claims transaction leases, and fetches KML since the previous fix. Every attempted poll writes a heartbeat and success/failure state even if no point arrives. It removes expired rate-limit entries in bounded batches.
+- `/races/{viewerUUID}` contains the public race. Exact UUIDv4 keys are readable; listing and client writes are denied. Individual top-level field subscriptions allow static geometry and dynamic state to update independently without schema migration. Static fields remain subscribed so legitimate organizer changes are visible.
+- `/jobs/{viewerUUID}` contains the private feed URL, active flag, start time, lease, resume time and diagnostic-test throttle. All client reads/writes are denied.
+- `/editKeys/{SHA256(editToken)}` privately maps independent edit UUIDs to races. Tokens are sent in Authorization headers, not API query strings.
+- `/limits/{ipHash}` limits creation to ten attempts per hour. Creation uses the direct function origin to avoid the Hosting CDN hop; the backend uses the rightmost Cloud Run-observed forwarded IP, not a client-prepended value. Shared proxies still share buckets. Old entries expire after one day; this is abuse friction, not authentication.
 
-    UI --> SW
-    SW --> LS
-    UI --> RTDBC
-    RTDBC <-->|WebSocket: /races/:id| RTDB
-    UI -->|HTTPS API: Bearer Token| API
-    API --> RTDB
-    Scheduler -->|Claim Lease & Query: /jobs| RTDB
-    Scheduler -->|Fetch KML with ?d1=| Garmin
-    Scheduler -->|Atomic Update: /races/:id| RTDB
-    UI -->|Raster Map Requests| OSM
-    FHost --> UI
-```
+## Tracking lifecycle
 
----
+Before start, the viewer shows the scheduled start. Polling skips future jobs. Points are sorted, deduplicated, and rejected if pre-start, in the future, too far off-route, or unreachable. Confirmed progress is monotonic. Ambiguous jumps between nearby trail sections, and unusually fast large advances, require a second distinct consistent fix before progress and splits change. This reduces isolated GPS-error jumps but cannot eliminate all ambiguity.
 
-## 2. Core Subsystems
+Aid crossings interpolate between confirmed positions. ETAs use average confirmed pace; overdue ETAs keep the projected date/time and show minutes overdue. Dates accompany times for multi-day races. Estimated position is clearly marked and projects pace for at most ten minutes.
 
-### 2.1 Frontend Client (`client.tsx`, `components/`)
+Finishing automatically or manually deactivates polling and leaves the viewer URL as an archive. No new fix for 24 hours since start, last fix, or resume pauses polling without claiming a finish. The organizer can resume or replace the feed. Feed diagnostics show the last heartbeat and health, plus a rate-limited server-side test button. With five-minute polls and a ten-minute inReach interval, position latency can approach fifteen minutes.
 
-* **Framework**: React 19 SPA bundled with Vite (`vite.firebase.config.ts`), deployed to `dist/client`.
-* **Routing**: Lightweight pathname matching in [`client.tsx`](file:///Users/daniel/self-directed-race-tracker/client.tsx) without heavy client routing dependencies:
-  * `/`: Home landing page ([`components/race-app.tsx`](file:///Users/daniel/self-directed-race-tracker/components/race-app.tsx)).
-  * `/setup`: Race creator interface ([`components/editor.tsx`](file:///Users/daniel/self-directed-race-tracker/components/editor.tsx)).
-  * `/edit/:token`: Private organizer management dashboard ([`components/editor.tsx`](file:///Users/daniel/self-directed-race-tracker/components/editor.tsx)).
-  * `/r/:id`: Live public viewer ([`components/viewer.tsx`](file:///Users/daniel/self-directed-race-tracker/components/viewer.tsx)).
-  * `/demo`: Sample course with mock telemetry.
-* **Map & Spatial Visualization** ([`components/race-map.tsx`](file:///Users/daniel/self-directed-race-tracker/components/race-map.tsx)):
-  * **MapLibre GL**: Renders OpenStreetMap raster tiles with MapLibre's WebGL canvas engine.
-  * **Vector Overlays**: GeoJSON line layers for the official course route and the runner's GPS breadcrumb trail (`race.track`).
-  * **HTML Markers**: Custom DOM markers for:
-    * Start point (`S`) and finish line (`F`).
-    * Aid stations (`1`, `2`, `3`... marked with checkmarks when passed).
-    * Runner's last confirmed Garmin fix.
-    * Dead-reckoning estimated location (active when enabled, projecting up to 10 minutes at confirmed average pace).
-  * **Interactive Aid Station Placement**: Clicking the route in `/setup` or `/edit` projects the click coordinate onto the nearest course segment and populates station mileage.
+## Offline and updates
 
-### 2.2 Offline & Service Worker Engine (`public/sw.js`)
+The service worker precaches the app shell and hashed bundles; public Firebase config is optional during installation and subsequently cached network-first. Private API requests are never cached. IndexedDB stores race snapshots, migrating old localStorage snapshots on access; storage failures are reported.
 
-* **Cache Shell**: Precaches `/index.html`, `/favicon.svg`, `/manifest.webmanifest`, and all compiled `/assets/*` chunks (injected during build via [`scripts/cache-assets.mjs`](file:///Users/daniel/self-directed-race-tracker/scripts/cache-assets.mjs)).
-* **Navigation Fallback**: Intercepts HTML navigation requests and falls back to the cached `/index.html` shell when offline.
-* **Tile Caching**: Caches up to 300 OpenStreetMap raster tiles with an LRU eviction strategy (`TILES` cache).
-* **Local Persistence**: Viewer snapshots are persisted into `localStorage` (`race:${id}`) on every WebSocket update, allowing previous races to render immediately offline even without network connectivity.
+Cold offline navigation renders the cached shell and race, reports offline state and last-update time, and reconnects when connectivity returns. OSM tiles are cached only on demand (300-tile cap), respect cache lifetime, and may be served stale offline. Unvisited areas can be blank offline while the vector route and splits remain available.
 
-### 2.3 Cloud Backend & APIs (`functions/src/`)
+New workers wait for old tabs to close before activation and cache cleanup. This preserves precached old lazy chunks for already-open pages. Core asset installation failures prevent activation; optional config failure does not discard the offline shell.
 
-* **HTTP API Endpoint (`api`)**:
-  * `POST /api/races`: Accepts route coordinates, optional elevation profile, start time, aid stations, and Garmin KML URL. Enforces IP rate limiting (10 races/hour). Generates cryptographically random UUIDs for viewer (`id`) and editor (`editToken`).
-  * `GET /api/edit`: Authenticates via `Authorization: Bearer <editToken>`. Returns race metadata and `feedConfigured: true` (never reveals raw feed URL).
-  * `PUT /api/edit`: Updates race metadata, station names, or feed URL. Enforces optimistic concurrency via `revision` numbers. Locks route geometry, start time, and stations once tracking has begun.
-  * `POST /api/edit` (`action: "complete"`): Atomically marks race as completed and stops ingestion.
-* **Ingestion Scheduler (`pollGarmin`)**:
-  * Cloud Scheduler triggers the function once every 60 seconds (`schedule: "every 1 minutes"`).
-  * Queries active jobs from `/jobs` (`orderByChild("active").equalTo(true)`).
-  * Uses database transactions to claim 3-minute leases (`leaseUntil: now + 180000`) per job, preventing duplicate processing across function instances.
-  * Fetches Garmin raw KML with a `d1` timestamp query parameter (since last confirmed fix or race start).
-  * Applies parsed fixes to the race model and updates the Realtime Database atomically.
+## Privacy and boundaries
 
----
+Garmin HTTPS hosts and paths are allowlisted; credentials, redirects, XML entities, and excessive responses are rejected. Time UTC fields are explicitly interpreted in UTC. Feed URLs stay server-side, but Garmin MapShare itself may be publicly discoverable from a known share name. Magic links are bearer credentials, not recoverable accounts. Referrers expose only origin; Hosting includes HSTS and CSP. Default OSM attribution is visible. A custom tile provider can be configured with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION`; no paid provider has been provisioned.
 
-## 3. Data & Storage Model (Firebase Realtime Database)
+## Verification and deployment
 
-```mermaid
-erDiagram
-    RACES ||--o{ JOBS : "configured by"
-    RACES ||--o{ EDIT_KEYS : "authorized by"
+Run `npm ci`, `npm --prefix functions ci`, `npm run typecheck`, `npm test`, and `npm run build`. Deploy `database,functions,hosting` to the selected Firebase project. Build outputs are intentionally ignored by Git and reproducible from source plus the private local public-SDK config file. Firebase predeploy rejects missing or emulator production configuration.
 
-    RACES {
-        string id PK "Viewer UUIDv4"
-        string name "Race title"
-        int startAt "Scheduled start timestamp (ms)"
-        array route "Array of [lng, lat] tuples"
-        array distances "Cumulative km per point"
-        array elevationsM "Optional elevation in meters"
-        array stations "Aid stations [{id, name, km}]"
-        string status "scheduled | live | complete"
-        float progressKm "Confirmed distance completed"
-        object fix "Latest GPS fix {lng, lat, at, km}"
-        object previousFix "Previous GPS fix"
-        array splits "Crossed stations [{stationId, at, estimated}]"
-        int heartbeatAt "Last health check timestamp"
-        boolean feedOk "Whether Garmin feed succeeded"
-        int finishedAt "Completion timestamp"
-        int revision "Optimistic lock counter"
-        array track "Recent breadcrumb fixes (last 2000)"
-    }
+Tests cover course ingestion, timestamps, capability rules, post-start edits, pause/resume, scheduler behavior, offline/reconnect, payload size, large GPX and mobile layout. Database emulator suites require Java 21+. The production smoke test cleans only its own created records in a finally block, reporting recovery instructions if cleanup fails.
 
-    JOBS {
-        string raceId PK "Matches race id"
-        string feedUrl "Private Garmin KML feed URL"
-        int startAt "Start timestamp"
-        boolean active "Polling status flag"
-        int leaseUntil "Scheduler lease expiration (ms)"
-    }
-
-    EDIT_KEYS {
-        string sha256Token PK "SHA-256 hash of editor UUID"
-        string raceId "Target race ID"
-    }
-
-    LIMITS {
-        string ipHash PK "SHA-256 hash of client IP"
-        int at "Bucket window timestamp"
-        int count "Creations in current window"
-    }
-```
-
-### Security & Access Control Rules (`database.rules.json`)
-
-* **Default Deny**: Root `.read: false` and `.write: false`. Direct client writes are forbidden across all paths.
-* **Capabilities Path (`/races/$raceId`)**:
-  * Readable without authentication **only** if the client requests an exact valid UUIDv4 key (`$raceId.matches(...)`).
-  * Shallow listing of `/races` is impossible because `.read` on `/races` is false.
-* **Confidential Storage (`/jobs`, `/editKeys`, `/limits`)**:
-  * Unreadable by any client (`.read: false`). Accessible only via the Firebase Admin SDK inside Cloud Functions.
-
----
-
-## 4. Tracking, Split & Math Engine (`shared/race.ts`)
-
-```mermaid
-sequenceDiagram
-    participant S as Scheduler (pollGarmin)
-    participant G as Garmin KML Feed
-    participant E as Tracking Engine (applyFixes)
-    participant DB as Realtime Database
-    participant V as Viewer Client
-
-    S->>DB: Claim lease on active jobs
-    S->>G: Fetch KML (?d1=sinceTimestamp)
-    G-->>S: Return KML XML
-    S->>E: applyFixes(currentRace, fixes)
-    Note over E: 1. Filter out-of-order & pre-start fixes<br/>2. Project point onto route<br/>3. Rejection window (25 km/h, 250m off-route)<br/>4. Linear split interpolation<br/>5. Check finish threshold
-    E-->>S: Return updated race model
-    S->>DB: Transactional update (/races/:id)
-    DB-->>V: WebSocket push notification
-    Note over V: Update track, recalculate ETAs,<br/>adjust dead-reckoning marker
-```
-
-### 4.1 Route Projection & Geometry
-1. **Haversine Distance**: Computes great-circle distance between coordinates in kilometers.
-2. **Segment Projection**: Projects an arbitrary GPS point `[lng, lat]` onto each line segment `[a, b]` of the route using scaled Cartesian cross-track projection (scaling longitude deltas by `cos(lat)`).
-3. **Loop Course Disambiguation**: Restricts candidate segments to a reachable forward window:
-   $$\text{minKm} = \max(0, \text{progressKm} - 0.1)$$
-   $$\text{maxKm} = \text{progressKm} + \max(0.3, \text{hours} \times 25)$$
-   Equally close segments require a 15-meter improvement (`0.015 km`) to prevent jitter from jumping ahead prematurely.
-
-### 4.2 Fix Validation & Filtering
-* **Temporal Bounds**: Fixes with timestamps before `race.startAt` or more than 2 minutes in the future are discarded.
-* **Monotonic Sequence**: Fixes older than or equal to `race.fix.at` are discarded.
-* **Off-Route Filter**: Fixes with an orthogonal distance $> 250\text{ m}$ (`0.25 km`) from the route are rejected.
-* **Max Plausible Speed**: Bounded by 25 km/h (15.5 mph) forward reach, configured for running and hiking events.
-
-### 4.3 Split Interpolation
-When a runner crosses an aid station located at $D_{\text{station}}$ between the previous fix $(D_{\text{prev}}, T_{\text{prev}})$ and current fix $(D_{\text{curr}}, T_{\text{curr}})$:
-$$\text{fraction} = \frac{D_{\text{station}} - D_{\text{prev}}}{D_{\text{curr}} - D_{\text{prev}}}$$
-$$T_{\text{split}} = T_{\text{prev}} + (T_{\text{curr}} - T_{\text{prev}}) \times \text{fraction}$$
-Splits are marked `estimated: true` because they represent mathematically interpolated crossings rather than physical timing mats.
-
-### 4.4 ETA & Dead Reckoning
-* **Average Confirmed Pace**:
-  $$\text{speed} = \frac{\text{progressKm}}{(T_{\text{fix}} - T_{\text{start}}) / 3,600,000} \quad (\text{clamped to } \le 25\text{ km/h})$$
-* **Aid Station ETA**:
-  $$\text{ETA} = T_{\text{fix}} + \frac{D_{\text{station}} - \text{progressKm}}{\text{speed}}$$
-  If $\text{ETA} < \text{currentTime}$, the UI labels the stop "Awaiting GPS".
-* **Estimated Location Marker**:
-  Projects along the route forward from the last fix based on elapsed real time, capped at 10 minutes:
-  $$D_{\text{est}} = \min\left(D_{\text{total}} - 0.051, \text{progressKm} + \text{speed} \times \min(10\text{ min}, \text{now} - T_{\text{fix}})\right)$$
-
-### 4.5 Completion Detection
-A race automatically marks as `complete` when:
-1. Confirmed progress reaches within 50 meters of the course end ($D \ge D_{\text{total}} - 0.05$).
-2. The current GPS fix is within 75 meters of the final route coordinate.
-Upon completion, the finish split is logged, the race is archived, and `jobs/:id.active` is set to `false`.
-
----
-
-## 5. Security & Privacy Model
-
-| Vector | Mitigation |
-| :--- | :--- |
-| **Authentication-Free Security** | Cryptographically random UUIDv4 magic links. Viewers only receive the viewer ID; editors receive an independent secret edit token. |
-| **Credential Storage** | Editor tokens are never stored in plaintext; only their `SHA-256` hash is stored under `/editKeys`. |
-| **KML Feed Leakage Prevention** | Stored in `/jobs`, completely inaccessible to client SDKs via RTDB rules. `GET /api/edit` returns only `feedConfigured: true`. |
-| **Referrer Leakage** | `Referrer-Policy: strict-origin` enforced across `index.html`, Cloud Functions, and Firebase Hosting headers to prevent URL capabilities from leaking to map tile providers. |
-| **SSRF (Server-Side Request Forgery)** | `validateFeed()` enforces HTTPS, strict Garmin host allowlists (`share.garmin.com`, etc.), valid path prefixes, and rejects credentials or custom ports. `fetch` sets `redirect: "error"`. |
-| **XML Exploits (XXE)** | KML parser rejects `<!DOCTYPE` and `<!ENTITY` declarations before parsing. Streaming response enforces a strict 5 MB cap. |
-
----
-
-## 6. End-to-End Workflows
-
-### 6.1 Race Creation
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Organizer
-    participant Client as Editor (/setup)
-    participant API as Cloud Function (api)
-    participant RTDB as Realtime Database
-
-    Organizer->>Client: Upload GPX + Set Date + Enter Garmin KML + Add Stations
-    Client->>Client: Parse GPX & Elevations (DOMParser)
-    Client->>API: POST /api/races (JSON Payload)
-    API->>API: Check IP rate limit & validate Garmin URL
-    API->>API: Generate id (Viewer UUID) & editToken (Editor UUID)
-    API->>RTDB: Atomic write: /races/:id, /jobs/:id, /editKeys/:sha256Token
-    API-->>Client: Return { id, editToken }
-    Client->>Organizer: Redirect to /edit/:editToken (Show viewer & edit links)
-```
-
-### 6.2 Live Tracking & Viewer Subscription
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Viewer
-    participant Browser as Viewer (/r/:id)
-    participant RTDB as Realtime Database
-    participant Scheduler as pollGarmin (1-min Cron)
-    participant Garmin as Garmin Servers
-
-    Viewer->>Browser: Open /r/:id
-    Browser->>RTDB: Subscribe: ref("races/" + id)
-    RTDB-->>Browser: Push initial race state
-    Browser->>Browser: Cache snapshot in localStorage
-
-    loop Every 60 seconds
-        Scheduler->>Garmin: GET KML feed (?d1=lastFixTimestamp)
-        Garmin-->>Scheduler: KML Coordinates
-        Scheduler->>RTDB: Atomic transaction (/races/:id)
-        RTDB-->>Browser: WebSocket push updated fix & splits
-        Browser->>Viewer: Update map position, ETAs, and health indicators
-    end
-```
-
----
-
-## 7. Known Architectural Constraints & Production Recommendations
-
-1. **RTDB Payload Partitioning**: Currently, static route coordinates (up to 6,000 points) and dynamic updates reside under the same `/races/:id` node. For high spectator volume, partition into `/races/:id/course` (read once) and `/races/:id/live` (streamed).
-2. **Job Expiration (TTL)**: Active jobs in `/jobs` should have an automatic expiration (e.g. 48 hours post-start) to eliminate zombie polling if a runner drops out without marking the race complete.
-3. **Map Tile Provider**: Default tiles use `tile.openstreetmap.org` with an LRU cache. Production deployments with high traffic should configure a dedicated vector/raster tile service (e.g., Mapbox, Maptiler, or Stadia Maps).
-4. **GPX Simplification**: GPX files exceeding 6,000 points are rejected. Implementing client-side Douglas-Peucker simplification would improve organizer UX for detailed GPX files.
+**Live Garmin verification remains pending a working feed supplied by the organizer.** Mocked ingestion tests do not validate a specific Garmin account's sharing configuration, redirect behavior, or all timestamp formats.

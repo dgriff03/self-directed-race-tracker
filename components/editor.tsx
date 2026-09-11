@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Header } from "./viewer";
 import RaceMap from "./race-map";
-import { api } from "../lib/firebase";
+import { api, subscribe } from "../lib/firebase";
 import { parseGpxWithElevation } from "../lib/gpx";
 import {
   cumulative,
@@ -41,6 +41,9 @@ const localDate = (n: number) => {
   return new Date(n - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
 export default function Editor({ token }: { token?: string }) {
+  const [health, setHealth] = useState<Race | null>(null);
+  const [diagnostic, setDiagnostic] = useState("");
+  const [testing, setTesting] = useState(false);
   const [name, setName] = useState(""),
     [start, setStart] = useState(""),
     [feed, setFeed] = useState(""),
@@ -70,6 +73,44 @@ export default function Editor({ token }: { token?: string }) {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
+  useEffect(() => {
+    if (!saved?.id) return;
+    let stopped = false;
+    let cleanup: (() => void) | undefined;
+    subscribe(
+      saved.id,
+      (r) => {
+        if (!stopped) setHealth(r);
+      },
+      () => {},
+      () => {},
+    )
+      .then((stop) => {
+        if (stopped) stop();
+        else cleanup = stop;
+      })
+      .catch(() => {});
+    return () => {
+      stopped = true;
+      cleanup?.();
+    };
+  }, [saved?.id]);
+  const testFeed = async () => {
+    if (!token) return;
+    setTesting(true);
+    try {
+      const result = await api("/edit", "POST", { action: "testFeed" }, token);
+      setDiagnostic(
+        result.ok
+          ? `Feed reachable. ${result.pointCount} timestamped points${result.latestAt ? `; latest ${new Date(result.latestAt).toLocaleString()}` : "; no positions in the requested time range"}.`
+          : result.message,
+      );
+    } catch (e) {
+      setDiagnostic(e instanceof Error ? e.message : "Feed test failed.");
+    } finally {
+      setTesting(false);
+    }
+  };
   const ds = useMemo(() => cumulative(route), [route]),
     total = ds.at(-1) ?? 0,
     locked = !!saved?.fix || saved?.status === "complete";
@@ -122,7 +163,7 @@ export default function Editor({ token }: { token?: string }) {
     try {
       const body = {
         name,
-        startAt: new Date(start).getTime(),
+        startAt: locked && saved ? saved.startAt : new Date(start).getTime(),
         route,
         elevationsM,
         stations,
@@ -153,8 +194,11 @@ export default function Editor({ token }: { token?: string }) {
       await api("/edit", "POST", { action: "resume" }, token);
       const { race } = await api("/edit", "GET", undefined, token);
       setSaved(race);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not resume tracking."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resume tracking.");
+    } finally {
+      setBusy(false);
+    }
   };
   const complete = async () => {
     setBusy(true);
@@ -272,9 +316,50 @@ export default function Editor({ token }: { token?: string }) {
                   <small>
                     Paste your Garmin MapShare link or KML feed. Viewers never
                     receive this link. Use a feed for one runner, without a
-                    password.
+                    password. Garmin MapShare is public separately; someone who
+                    knows your share name may find it outside Milemark.
                   </small>
                 </label>
+                {saved && (
+                  <div className="feed-diagnostics" aria-live="polite">
+                    <p>
+                      {health?.trackingPaused
+                        ? "Tracking paused"
+                        : health?.feedOk === true
+                          ? "Last poll: feed healthy"
+                          : health?.feedOk === false
+                            ? "Last poll: Garmin unavailable"
+                            : "Waiting for the first scheduled poll"}
+                    </p>
+                    <small>
+                      {health?.heartbeatAt
+                        ? `Health checked ${new Date(health.heartbeatAt).toLocaleString()}`
+                        : "No health check yet"}
+                    </small>
+                    <p>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={
+                          testing ||
+                          busy ||
+                          !!feed ||
+                          saved.status === "complete"
+                        }
+                        onClick={testFeed}
+                      >
+                        {testing ? "Testing…" : "Test saved Garmin feed"}
+                      </button>
+                    </p>
+                    {feed && (
+                      <small>
+                        Save the replacement URL before testing it. Saving also
+                        resumes paused tracking.
+                      </small>
+                    )}
+                    {diagnostic && <p>{diagnostic}</p>}
+                  </div>
+                )}
               </section>
               <section className="form-card">
                 <div className="form-title">
@@ -520,7 +605,16 @@ export default function Editor({ token }: { token?: string }) {
                       recovery.
                     </small>
                   </label>
-                  {saved.trackingPaused && saved.status !== "complete" && <button type="button" className="button primary" disabled={busy} onClick={resume}>Resume Garmin tracking</button>}
+                  {saved.trackingPaused && saved.status !== "complete" && (
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={busy}
+                      onClick={resume}
+                    >
+                      Resume Garmin tracking
+                    </button>
+                  )}
                   {saved.status !== "complete" ? (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>

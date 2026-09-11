@@ -14,6 +14,7 @@ export type Race = {
   progressKm: number;
   fix: Fix | null;
   previousFix: Fix | null;
+  pendingFix?: Fix | null;
   splits: Split[];
   heartbeatAt: number | null;
   feedOk: boolean | null;
@@ -59,6 +60,7 @@ export function project(
   maxKm = Infinity,
 ) {
   let best = { km: minKm, offKm: Infinity };
+  const candidates: { km: number; offKm: number }[] = [];
   for (let i = 1; i < route.length; i++) {
     if (ds[i] < minKm || ds[i - 1] > maxKm) continue;
     const a = route[i - 1],
@@ -73,9 +75,16 @@ export function project(
     const km = ds[i - 1] + (ds[i] - ds[i - 1]) * f;
     if (km < minKm - 0.001 || km > maxKm) continue;
     const offKm = distance(point, [a[0] + f * (b[0] - a[0]), a[1] + f * dy]);
+    candidates.push({ km, offKm });
     if (offKm < best.offKm - 0.015) best = { km, offKm };
   }
-  return best;
+  return {
+    ...best,
+    ambiguous: candidates.some(
+      (c) =>
+        c.km < best.km - 0.5 && c.offKm <= Math.min(0.1, best.offKm + 0.075),
+    ),
+  };
 }
 export function speed(r: Race) {
   if (!r.fix) return 0;
@@ -89,7 +98,7 @@ export function applyFixes(r: Race, fixes: Fix[]): Race {
     if (
       fix.at < out.startAt ||
       fix.at > Date.now() + 120000 ||
-      fix.at <= (out.fix?.at ?? 0)
+      fix.at <= Math.max(out.fix?.at ?? 0, out.pendingFix?.at ?? 0)
     )
       continue;
     const hours = (fix.at - (out.fix?.at ?? out.startAt)) / 3600000;
@@ -102,6 +111,25 @@ export function applyFixes(r: Race, fixes: Fix[]): Race {
     );
     if (match.offKm > 0.25) continue;
     const km = Math.max(out.progressKm, match.km);
+    const pending = out.pendingFix;
+    const suspicious =
+      match.ambiguous ||
+      (out.fix &&
+        km - out.progressKm > 1 &&
+        (km - out.progressKm) / Math.max(hours, 1 / 3600) >
+          Math.max(12, speed(out) * 2.5));
+    const corroborated =
+      pending &&
+      fix.at > pending.at &&
+      km >= (pending.km ?? 0) - 0.1 &&
+      km <=
+        (pending.km ?? 0) +
+          Math.max(0.3, ((fix.at - pending.at) / 3600000) * 25);
+    if (suspicious && !corroborated) {
+      out.pendingFix = { ...fix, km };
+      continue;
+    }
+    out.pendingFix = null;
     const previous = out.fix;
     for (const station of out.stations) {
       if (

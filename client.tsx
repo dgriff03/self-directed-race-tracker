@@ -11,9 +11,9 @@ createRoot(document.getElementById("root")!).render(
   path === "/demo" ? (
     <Viewer id="demo" />
   ) : viewer ? (
-    <Viewer id={viewer[1]} />
+    <Viewer id={viewer[1].toLowerCase()} />
   ) : edit ? (
-    <Editor token={edit[1]} />
+    <Editor token={edit[1].toLowerCase()} />
   ) : path === "/setup" ? (
     <Editor />
   ) : path === "/" ? (

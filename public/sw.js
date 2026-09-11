@@ -1,4 +1,4 @@
-const VERSION = "paceline-v6";
+const VERSION = "milemark-v7";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 const offlineClients = new Set();
 const SHELL = VERSION + "-shell";
@@ -7,10 +7,11 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((cache) =>
-        cache.addAll(PRECACHE),
-      )
-      .then(() => self.skipWaiting()),
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(async () => {
+        const cache = await caches.open(SHELL);
+        await Promise.allSettled([cache.add("/firebase-config.json")]);
+      }),
   );
 });
 self.addEventListener("activate", (event) => {
@@ -20,7 +21,11 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((k) => k.startsWith("paceline-") && !k.startsWith(VERSION))
+            .filter(
+              (k) =>
+                (k.startsWith("paceline-") || k.startsWith("milemark-")) &&
+                !k.startsWith(VERSION),
+            )
             .map((k) => caches.delete(k)),
         ),
       )
@@ -37,17 +42,22 @@ self.addEventListener("fetch", (event) => {
   )
     return;
   // Public SDK identifiers are safe to cache; private API responses remain excluded.
-  if (url.origin === self.location.origin && url.pathname === "/firebase-config.json") {
-    event.respondWith((async () => {
-      const cache = await caches.open(SHELL);
-      try {
-        const response = await fetch(req);
-        if (response.ok) await cache.put(req, response.clone());
-        return response;
-      } catch {
-        return (await cache.match(req)) || Response.error();
-      }
-    })());
+  if (
+    url.origin === self.location.origin &&
+    url.pathname === "/firebase-config.json"
+  ) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(SHELL);
+        try {
+          const response = await fetch(req);
+          if (response.ok) await cache.put(req, response.clone());
+          return response;
+        } catch {
+          return (await cache.match(req)) || Response.error();
+        }
+      })(),
+    );
     return;
   }
   if (req.mode === "navigate" && url.origin === self.location.origin) {
@@ -81,11 +91,20 @@ self.addEventListener("fetch", (event) => {
       if (cached && !tile) return cached;
       if (cached && tile) {
         const age = Date.now() - Date.parse(cached.headers.get("date") || "");
-        const ttl = Number(cached.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1] || 604800) * 1000;
+        const ttl =
+          Number(
+            cached.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1] ||
+              604800,
+          ) * 1000;
         if (Number.isFinite(age) && age < ttl) return cached;
       }
       let response;
-      try { response = await fetch(req); } catch (error) { if (cached) return cached; throw error; }
+      try {
+        response = await fetch(req);
+      } catch (error) {
+        if (cached) return cached;
+        throw error;
+      }
       if (response.ok) {
         await cache.put(req, response.clone());
         if (tile) {

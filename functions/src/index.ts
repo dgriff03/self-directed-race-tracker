@@ -5,6 +5,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { applyFixes, cumulative, type Race } from "../../shared/race.js";
+import { requestIp } from "./request-ip.js";
 import { fetchFeed, validateFeed } from "./feed.js";
 initializeApp();
 const db = getDatabase();
@@ -37,6 +38,14 @@ const configSchema = z.object({
   feedUrl: z.string().max(2048).optional(),
   revision: z.number().int().optional(),
 });
+export function sameStations(a: Race["stations"], b: Race["stations"]) {
+  return (
+    a.length === b.length &&
+    a.every((s) =>
+      b.some((t) => t.id === s.id && t.name === s.name && t.km === s.km),
+    )
+  );
+}
 export function normalizeRace(v: any): Race {
   return {
     ...v,
@@ -60,7 +69,9 @@ export const api = onRequest(
     try {
       const path = req.path.replace(/^\/api/, "");
       if (req.method === "POST" && path === "/races") {
-        const ip = hash(req.ip ?? "unknown");
+        const ip = hash(
+          requestIp(req.headers["x-forwarded-for"], req.socket.remoteAddress),
+        );
         const quota = db.ref(`limits/${ip}`);
         const limited = await quota.transaction((v) => {
           const now = Date.now();
@@ -150,9 +161,47 @@ export const api = onRequest(
           return;
         }
         if (req.method === "POST") {
+          if (req.body.action === "testFeed" && race.status !== "complete") {
+            const jobRef = db.ref(`jobs/${id}`);
+            const claim = await jobRef.transaction((v) =>
+              !v
+                ? v
+                : (v.testAfter ?? 0) > Date.now()
+                  ? undefined
+                  : { ...v, testAfter: Date.now() + 60000 },
+            );
+            if (!claim.committed) {
+              res
+                .status(429)
+                .json({ error: "Wait a minute before testing again." });
+              return;
+            }
+            try {
+              const points = await fetchFeed(
+                claim.snapshot.val().feedUrl,
+                race.startAt,
+              );
+              res.json({
+                ok: true,
+                checkedAt: Date.now(),
+                pointCount: points.length,
+                latestAt: points.at(-1)?.at ?? null,
+              });
+            } catch {
+              res.json({
+                ok: false,
+                checkedAt: Date.now(),
+                message:
+                  "Garmin could not be read. Check the share name and that sharing is enabled without a password.",
+              });
+            }
+            return;
+          }
           if (req.body.action === "resume" && race.status !== "complete") {
             await ref.update({ trackingPaused: false });
-            await db.ref(`jobs/${id}`).update({ active: true, resumedAt: Date.now() });
+            await db
+              .ref(`jobs/${id}`)
+              .update({ active: true, resumedAt: Date.now() });
             res.json({ ok: true });
             return;
           }
@@ -176,7 +225,8 @@ export const api = onRequest(
           input.elevationsM.length !== input.route.length
         )
           throw Error("Elevation profile must match the route points.");
-        if (input.feedUrl) input.feedUrl = validateFeed(input.feedUrl).toString();
+        if (input.feedUrl)
+          input.feedUrl = validateFeed(input.feedUrl).toString();
         const ds = cumulative(input.route),
           total = ds.at(-1)!;
         if (
@@ -199,9 +249,10 @@ export const api = onRequest(
             if (
               JSON.stringify(current.route) !== JSON.stringify(input.route) ||
               current.startAt !== input.startAt ||
-              JSON.stringify(
+              !sameStations(
                 current.stations.filter((s) => s.id !== "finish"),
-              ) !== JSON.stringify(input.stations.sort((a, b) => a.km - b.km))
+                input.stations,
+              )
             )
               return;
           }
@@ -234,10 +285,24 @@ export const api = onRequest(
         }
         await db.ref(`jobs/${id}`).update({
           startAt: input.startAt,
-          ...(input.feedUrl ? { feedUrl: input.feedUrl } : {}),
+          ...(input.feedUrl
+            ? {
+                feedUrl: input.feedUrl,
+                ...(race.status !== "complete"
+                  ? { active: true, resumedAt: Date.now() }
+                  : {}),
+              }
+            : {}),
         });
+        if (input.feedUrl && race.status !== "complete")
+          await ref.update({ trackingPaused: false });
         res.json({
-          race: normalizeRace(updated.snapshot.val()),
+          race: {
+            ...normalizeRace(updated.snapshot.val()),
+            ...(input.feedUrl && race.status !== "complete"
+              ? { trackingPaused: false }
+              : {}),
+          },
           feedConfigured: true,
         });
         return;
@@ -267,6 +332,21 @@ export const pollGarmin = onSchedule(
   },
   async () => {
     const now = Date.now();
+    const expired = await db
+      .ref("limits")
+      .orderByChild("at")
+      .endAt(now - 86400000)
+      .limitToFirst(500)
+      .get();
+    await Promise.all(
+      Object.keys(expired.val() ?? {}).map((key) =>
+        db
+          .ref(`limits/${key}`)
+          .transaction((v) =>
+            !v ? v : v.at < now - 86400000 ? null : undefined,
+          ),
+      ),
+    );
     const jobs = await db
       .ref("jobs")
       .orderByChild("active")
@@ -296,7 +376,15 @@ export const pollGarmin = onSchedule(
                 return;
               }
               const race = normalizeRace(raw);
-              if (now - Math.max(race.startAt, race.fix?.at ?? 0, job.resumedAt ?? 0) > 24 * 3600000) {
+              if (
+                now -
+                  Math.max(
+                    race.startAt,
+                    race.fix?.at ?? 0,
+                    job.resumedAt ?? 0,
+                  ) >
+                24 * 3600000
+              ) {
                 await ref.update({ trackingPaused: true });
                 await jobRef.update({ active: false });
                 return;

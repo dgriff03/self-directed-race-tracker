@@ -186,3 +186,26 @@ test("Garmin Time UTC is independent of the process timezone", () => {
     assert.equal(fixes[0].at, Date.parse("2026-09-11T16:00:00Z"));
   } finally { if (old === undefined) delete process.env.TZ; else process.env.TZ = old; }
 });
+
+import {requestIp} from "../functions/src/request-ip";
+test("rate limit identity ignores spoofed forwarded prefixes", () => {
+  assert.equal(requestIp("1.1.1.1, 203.0.113.9"), requestIp("8.8.8.8, 203.0.113.9"));
+  assert.equal(requestIp(undefined,"::ffff:127.0.0.1"),"127.0.0.1");
+});
+test("an ambiguous parallel-trail fix cannot fabricate splits", () => {
+  const r = race();
+  r.route = [[0,0],[.02,0],[.02,.0005],[0,.0005]];
+  r.distances = cumulative(r.route);
+  r.stations = [{id:"aid",name:"Aid",km:1.5}];
+  r.progressKm = .3;
+  r.fix = {lng:.003,lat:0,at:r.startAt+100000,km:.3};
+  const pending = applyFixes(r,[{lng:.004,lat:.0005,at:r.startAt+1800000}]);
+  assert.equal(pending.progressKm,.3);
+  assert.equal(pending.splits.length,0);
+  assert.ok(pending.pendingFix);
+  const recovered=applyFixes(pending,[{lng:.005,lat:0,at:r.startAt+2400000}]);
+  assert.ok(recovered.progressKm<1);
+  assert.equal(recovered.splits.length,0);
+  const confirmed=applyFixes(pending,[{lng:.003,lat:.0005,at:r.startAt+2400000}]);
+  assert.equal(confirmed.splits.length,1);
+});

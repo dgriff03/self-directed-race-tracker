@@ -12,6 +12,11 @@ assert.equal((await call('/races','POST',{...body,elevationsM:[1000]})).status,4
 await fetch(`http://127.0.0.1:9000/races/${id}/trackingPaused.json?ns=demo-paceline`,{method:'PUT',headers:{Authorization:'Bearer owner'},body:'true'});
 assert.equal((await call('/edit','POST',{action:'resume'},editToken)).status,200);
 assert.equal((await call('/edit','GET',undefined,editToken)).data.race.trackingPaused,false);
+await fetch(`http://127.0.0.1:9000/races/${id}.json?ns=demo-paceline`,{method:'PATCH',headers:{Authorization:'Bearer owner'},body:JSON.stringify({fix:{lng:-105.01,lat:40.01,at:Date.now(),km:1},trackingPaused:true})});
+const activeEdit=await call('/edit','GET',undefined,editToken);
+const activeBody={...body,name:'Renamed during race',revision:activeEdit.data.race.revision,feedUrl:'https://share.garmin.com/replacement-test'};
+const activeSave=await call('/edit','PUT',activeBody,editToken);assert.equal(activeSave.status,200,JSON.stringify(activeSave));assert.equal(activeSave.data.race.trackingPaused,false);
+assert.equal((await call('/edit','PUT',{...activeBody,revision:activeSave.data.race.revision,stations:[{...body.stations[0],km:1.1}]},editToken)).status,409);
 assert.equal((await call('/edit','POST',{action:'complete'},editToken)).status,200);
 const done=await call('/edit','GET',undefined,editToken);assert.equal(done.data.race.status,'complete');
 assert.equal((await call('/races','POST',{...body,feedUrl:'https://localhost/private'})).status,400);

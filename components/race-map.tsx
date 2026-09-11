@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   kmToMiles,
   atDistance,
@@ -21,8 +21,11 @@ export default function RaceMap({
   const element = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const estimateRef = useRef<import("maplibre-gl").Marker | null>(null);
-  const routeKey = JSON.stringify(race.route);
-  const markerKey = JSON.stringify([race.stations, race.splits, race.fix, race.track]);
+  const routeKey = useMemo(() => JSON.stringify(race.route), [race.route]);
+  const markerKey = useMemo(
+    () => JSON.stringify([race.stations, race.splits, race.fix, race.track]),
+    [race.stations, race.splits, race.fix, race.track],
+  );
   const [ready, setReady] = useState(0);
   const [error, setError] = useState(false);
   const pickRef = useRef(onPick);
@@ -41,9 +44,13 @@ export default function RaceMap({
           sources: {
             base: {
               type: "raster",
-              tiles: [import.meta.env.VITE_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tiles: [
+                import.meta.env.VITE_MAP_TILE_URL ||
+                  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+              ],
               tileSize: 256,
-              attribution: import.meta.env.VITE_MAP_ATTRIBUTION ||
+              attribution:
+                import.meta.env.VITE_MAP_ATTRIBUTION ||
                 '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
             },
           },
@@ -185,18 +192,26 @@ export default function RaceMap({
       return;
     }
     const point = atDistance(race.route, race.distances, estimatedKm);
-    if (estimateRef.current) { estimateRef.current.setLngLat(point); return; }
+    if (estimateRef.current) {
+      estimateRef.current.setLngLat(point);
+      return;
+    }
     let active = true;
-    import("maplibre-gl").then(m => {
+    import("maplibre-gl").then((m) => {
       if (!active) return;
       const el = document.createElement("button");
       el.className = "map-marker estimated";
       const label = "Estimated location — projected from average pace";
       el.title = label;
       el.setAttribute("aria-label", label);
-      estimateRef.current = new m.Marker({element: el}).setLngLat(point).setPopup(new m.Popup({offset:20}).setText(label)).addTo(map);
+      estimateRef.current = new m.Marker({ element: el })
+        .setLngLat(point)
+        .setPopup(new m.Popup({ offset: 20 }).setText(label))
+        .addTo(map);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [ready, estimatedKm, routeKey, !!race.fix]);
   return (
     <div className="map-wrap">

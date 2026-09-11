@@ -27,7 +27,12 @@ import {
   type Race,
 } from "../shared/race";
 const time = (t: number) =>
-  new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  new Date(t).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 export default function Viewer({ id }: { id: string }) {
   const demo = id === "demo";
   const [race, setRace] = useState<Race | null>(null),
@@ -78,9 +83,11 @@ export default function Viewer({ id }: { id: string }) {
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
     let receivedLive = false;
-    loadRace(id).then(cached => {
-      if (!stopped && !receivedLive && cached) setRace(cached);
-    }).catch(() => {});
+    loadRace(id)
+      .then((cached) => {
+        if (!stopped && !receivedLive && cached) setRace(cached);
+      })
+      .catch(() => {});
     subscribe(
       id,
       (r) => {
@@ -95,7 +102,11 @@ export default function Viewer({ id }: { id: string }) {
         }
         setRace(r);
         setError("");
-        saveRace(r).catch(() => setError("Offline saving is unavailable on this device. Keep this page open to retain the current race."));
+        saveRace(r).catch(() =>
+          setError(
+            "Offline saving is unavailable on this device. Keep this page open to retain the current race.",
+          ),
+        );
       },
       setConnected,
       (e) => setError(e.message),
@@ -227,7 +238,12 @@ export default function Viewer({ id }: { id: string }) {
           <a href="/setup">Create your own race →</a>
         </div>
       )}
-      {race.trackingPaused && !complete && <div className="notice">Tracking paused after 24 hours without a new GPS fix. The organizer can resume tracking from the edit link.</div>}
+      {race.trackingPaused && !complete && (
+        <div className="notice">
+          Tracking paused after 24 hours without a new GPS fix. The organizer
+          can resume tracking from the edit link.
+        </div>
+      )}
       {scheduled && (
         <div className="notice">
           Event starting at {new Date(race.startAt).toLocaleString()}. Tracking
@@ -461,8 +477,9 @@ export default function Viewer({ id }: { id: string }) {
           <div>
             <h3>A clear picture between updates</h3>
             <p>
-              Garmin sends positions at its configured interval. A separate
-              feed health check runs every five minutes.
+              Garmin sends positions at its configured interval. A separate feed
+              health check runs every five minutes. With a ten-minute device
+              interval, a position can take roughly fifteen minutes to appear.
             </p>
           </div>
         </div>
