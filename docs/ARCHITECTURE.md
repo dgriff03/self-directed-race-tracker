@@ -55,3 +55,11 @@ ETA uses a 40-minute recent pace window when enough samples exist, with slow pos
 Consistent movement following corroborated switchbacks can use the last accepted segment as evidence, avoiding an every-other-fix delay. Corroborated pending positions retain their original timestamps for split interpolation. Isolated ambiguous jumps still wait for confirmation.
 
 Feed diagnostics include at least the previous 24 hours even before the race starts. CSP permits Firebase RTDB long-poll transport hosts so viewers can connect without WebSockets. The production smoke test explicitly disables WebSockets for its viewer. Unused D1 examples and the unreferenced original PNG were removed; the visible WebP topo background and provenance remain.
+
+### Explicit out-and-back tracking
+
+`outAndBack` is a pre-start configuration flag for full retraced GPX routes. `journey` stores outbound chainage, furthest confirmed position/time, reversal evidence, direction, and recent return samples. Both are public realtime fields and are included in offline snapshots. Existing races without the flag keep the original matching behavior.
+
+In this mode `progressKm` is chainage on the original planned GPX (outbound position or total minus outbound position on return). Display helpers calculate the shortened total and distance completed without counting the skipped middle of the course. Elevation helpers likewise exclude the bypassed segment. Station positions remain stored in original route chainage; skipped status and revised displayed mileage are derived. The planned GPX and earlier crossings remain available after completion.
+
+Direction overrides run inside the private edit API's RTDB transaction, sharing the scheduler's atomic race state. They increment configuration revision. Returning mode can be undone only while the trip is active; it removes inferred return crossings and rearms early detection after renewed outbound progress. The scheduler stops on completion through the existing lifecycle. Replay uses the same engine with a simulated clock, so backward seeking reconstructs the earlier direction and split state.

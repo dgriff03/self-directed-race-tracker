@@ -5,6 +5,13 @@ import { parseGpxWithElevation } from "../lib/gpx";
 import { parseKml } from "../shared/kml";
 import { ReplayEngine } from "../lib/replay";
 import {
+  validOutAndBack,
+  completedDistance,
+  plannedDistance,
+  journeyElevation,
+  journeyMessage,
+  stationSkipped,
+  stationDistance,
   cumulative,
   kmToMiles,
   milesToKm,
@@ -24,6 +31,7 @@ const localDate = (n: number) =>
     .toISOString()
     .slice(0, 19);
 export default function Replay() {
+  const [outAndBack, setOutAndBack] = useState(false);
   const [course, setCourse] = useState<ReturnType<
     typeof parseGpxWithElevation
   > | null>(null);
@@ -45,6 +53,7 @@ export default function Replay() {
     () =>
       course && points.length
         ? {
+            outAndBack,
             id: "replay",
             name: gpxName.replace(/\.gpx$/i, ""),
             startAt: start,
@@ -67,7 +76,7 @@ export default function Replay() {
             revision: 1,
           }
         : null,
-    [course, points, start, ds, stations, total, gpxName],
+    [course, points, start, ds, stations, total, gpxName, outAndBack],
   );
   const engine = useMemo(
     () => (initial ? new ReplayEngine(initial, points) : null),
@@ -106,6 +115,7 @@ export default function Replay() {
       if (kind === "gpx") {
         const parsed = parseGpxWithElevation(text);
         setCourse(parsed);
+        setOutAndBack(false);
         setGpxName(file.name);
         setStations([]);
         setCursor(lower);
@@ -128,9 +138,7 @@ export default function Replay() {
   }
   const dwell = race ? stationDwellStatus(race, cursor) : null,
     pace = race ? paceEstimate(race) : null;
-  const vert = race
-    ? elevationProgress(race.distances, race.elevationsM, race.progressKm)
-    : null;
+  const vert = race ? journeyElevation(race) : null;
   return (
     <main>
       <Header />
@@ -144,6 +152,28 @@ export default function Replay() {
         </p>
       </section>
       <section className="replay-controls form-card">
+        {course && (
+          <label className="direction-choice">
+            <input
+              type="checkbox"
+              checked={outAndBack}
+              onChange={(e) => {
+                if (e.target.checked && !validOutAndBack(course.route)) {
+                  setError(
+                    "Out-and-back mode needs a full GPX returning on the same trail, with the turnaround at half the mileage.",
+                  );
+                  return;
+                }
+                setOutAndBack(e.target.checked);
+                setPlaying(false);
+                setCursor(lower);
+                setError("");
+              }}
+            />{" "}
+            Out-and-back · detect early turnaround
+          </label>
+        )}
+
         <div className="replay-uploads">
           <label>
             GPX route
@@ -161,7 +191,10 @@ export default function Replay() {
               accept=".kml,.klm,application/vnd.google-earth.kml+xml"
               onChange={(e) => void upload("kml", e.target.files?.[0])}
             />
-            <small>{kmlName || "Up to 25 MB · 10,000 positions · timestamps required"}</small>
+            <small>
+              {kmlName ||
+                "Up to 25 MB · 10,000 positions · timestamps required"}
+            </small>
           </label>
         </div>
         {error && (
@@ -255,9 +288,9 @@ export default function Replay() {
             <section className="replay-stations">
               <h2>Add aid stations</h2>
               <p>
-                Enter a station name and its distance in miles, then click Add station.
-                You can also click the route on the map below to fill in the distance.
-                The finish line is included automatically.
+                Enter a station name and its distance in miles, then click Add
+                station. You can also click the route on the map below to fill
+                in the distance. The finish line is included automatically.
               </p>
               <div className="replay-uploads">
                 <label>
@@ -304,7 +337,11 @@ export default function Replay() {
               </button>
               {stations.map((s) => (
                 <p key={s.id}>
-                  {s.name} · {kmToMiles(s.km).toFixed(2)} mi{" "}
+                  {s.name} ·{" "}
+                  {kmToMiles(race ? stationDistance(race, s.km) : s.km).toFixed(
+                    2,
+                  )}{" "}
+                  mi{" "}
                   <button
                     className="textlink"
                     onClick={() => {
@@ -323,12 +360,13 @@ export default function Replay() {
       </section>
       {race && (
         <section className="replay-results">
+          {outAndBack && <p role="status">{journeyMessage(race)}</p>}
           <div className="replay-stats">
             <div>
               <small>CONFIRMED DISTANCE</small>
               <strong>
-                {kmToMiles(race.progressKm).toFixed(2)} /{" "}
-                {kmToMiles(total).toFixed(2)} mi
+                {kmToMiles(completedDistance(race)).toFixed(2)} /{" "}
+                {kmToMiles(plannedDistance(race)).toFixed(2)} mi
               </strong>
             </div>
             <div>
@@ -376,7 +414,12 @@ export default function Replay() {
                 <div className="replay-split" key={s.id}>
                   <span>
                     <b>{s.name}</b>
-                    <small>{kmToMiles(s.km).toFixed(2)} mi</small>
+                    <small>
+                      {kmToMiles(
+                        race ? stationDistance(race, s.km) : s.km,
+                      ).toFixed(2)}{" "}
+                      mi
+                    </small>
                   </span>
                   <span>
                     {split ? (
@@ -391,11 +434,13 @@ export default function Replay() {
                       <>
                         <b>{eta ? stamp(eta) : "—"}</b>
                         <small>
-                          {race.status === "complete"
-                            ? "Not recorded"
-                            : eta
-                              ? "ETA"
-                              : "Awaiting GPS"}
+                          {stationSkipped(race, s.id)
+                            ? "Skipped · early return"
+                            : race.status === "complete"
+                              ? "Not recorded"
+                              : eta
+                                ? "ETA"
+                                : "Awaiting GPS"}
                         </small>
                       </>
                     )}

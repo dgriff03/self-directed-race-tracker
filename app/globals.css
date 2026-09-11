@@ -1040,3 +1040,5 @@ footer {
 .replay-split span:last-child { text-align: right; }
 .replay-empty { padding: 32px; text-align: center; background: rgba(255,255,255,.94); border-radius: 12px; }
 @media(max-width: 650px) { .replay-uploads, .replay-stats { grid-template-columns: 1fr; } .replay-stats > div { padding: 14px 20px; } .replay-ends { font-size: .7rem; } .replay-split { font-size: .85rem; } }
+.form-card label.direction-choice { display: flex; align-items: center; gap: 10px; }
+.form-card .direction-choice input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: 0 0 20px; accent-color: #e5672c; }

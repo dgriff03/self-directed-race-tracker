@@ -107,6 +107,8 @@ export async function subscribe(
     "revision",
     "track",
     "trackingPaused",
+    "outAndBack",
+    "journey",
   ];
   const value: any = {};
   const loaded = new Set<string>();

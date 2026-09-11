@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  stationSkipped,
+  stationDistance,
   kmToMiles,
   atDistance,
   project,
@@ -23,8 +25,15 @@ export default function RaceMap({
   const estimateRef = useRef<import("maplibre-gl").Marker | null>(null);
   const routeKey = useMemo(() => JSON.stringify(race.route), [race.route]);
   const markerKey = useMemo(
-    () => JSON.stringify([race.stations, race.splits, race.fix, race.track]),
-    [race.stations, race.splits, race.fix, race.track],
+    () =>
+      JSON.stringify([
+        race.stations,
+        race.splits,
+        race.fix,
+        race.track,
+        race.journey,
+      ]),
+    [race.stations, race.splits, race.fix, race.track, race.journey],
   );
   const [ready, setReady] = useState(0);
   const [error, setError] = useState(false);
@@ -116,11 +125,14 @@ export default function RaceMap({
         color: string,
         width: number,
       ) => {
-        const data: any = coordinates.length < 2 ? { type: "FeatureCollection", features: [] } : {
-          type: "Feature",
-          properties: {},
-          geometry: { type: "LineString", coordinates },
-        };
+        const data: any =
+          coordinates.length < 2
+            ? { type: "FeatureCollection", features: [] }
+            : {
+                type: "Feature",
+                properties: {},
+                geometry: { type: "LineString", coordinates },
+              };
         const source = map.getSource(id) as
           import("maplibre-gl").GeoJSONSource | undefined;
         if (source) source.setData(data);
@@ -138,11 +150,11 @@ export default function RaceMap({
       line("course-outline", race.route, "#fff", 8);
       line("course", race.route, "#e5672c", 4);
       line(
-          "track",
-          race.track.map((p) => [p.lng, p.lat]),
-          "#153f4a",
-          5,
-        );
+        "track",
+        race.track.map((p) => [p.lng, p.lat]),
+        "#153f4a",
+        5,
+      );
       const marker = (
         point: Coordinate,
         label: string,
@@ -165,7 +177,7 @@ export default function RaceMap({
       race.stations.forEach((s, i) =>
         marker(
           atDistance(race.route, race.distances, s.km),
-          `${s.name} · ${kmToMiles(s.km).toFixed(1)} mi`,
+          `${s.name} · ${kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi${stationSkipped(race, s.id) ? " · Skipped on early return" : ""}`,
           race.splits.some((p) => p.stationId === s.id) ? "passed" : "aid",
           s.id === "finish" ? "F" : String(i + 1),
         ),

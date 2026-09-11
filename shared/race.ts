@@ -22,6 +22,19 @@ export type Race = {
   revision: number;
   track: Fix[];
   trackingPaused?: boolean;
+  outAndBack?: boolean;
+  journey?: {
+    phase: "outbound" | "returning";
+    peakKm: number;
+    peakAt: number;
+    positionKm: number;
+    reverseCount: number;
+    reverseAt: number;
+    turnaroundKm?: number;
+    turnedAt?: number;
+    returnSamples?: { km: number; at: number }[];
+    rearmKm?: number;
+  } | null;
 };
 export function distance(a: Coordinate, b: Coordinate) {
   const rad = Math.PI / 180;
@@ -89,13 +102,26 @@ export function project(
 export function speed(r: Race) {
   if (!r.fix) return 0;
   const elapsed = (r.fix.at - r.startAt) / 3600000;
-  return elapsed > 0 ? Math.min(25, r.progressKm / elapsed) : 0;
+  return elapsed > 0 ? Math.min(25, completedDistance(r) / elapsed) : 0;
 }
 export function paceEstimate(
   r: Race,
   windowMs = 40 * 60 * 1000,
 ): { kmh: number; source: "rolling" | "overall" } {
   const overall = speed(r);
+  if (r.journey?.phase === "returning") {
+    const samples = r.journey.returnSamples ?? [];
+    if (samples.length >= 3) {
+      const last = samples[samples.length - 1];
+      const first =
+        samples.find((p) => p.at >= last.at - windowMs) ?? samples[0];
+      const hours = (last.at - first.at) / 3600000;
+      const km = first.km - last.km;
+      if (hours >= 0.05 && km > 0.02)
+        return { kmh: Math.min(25, km / hours), source: "rolling" };
+    }
+    return { kmh: overall, source: "overall" };
+  }
   const stabilize = (
     raw: number,
   ): { kmh: number; source: "rolling" | "overall" } =>
@@ -185,20 +211,31 @@ export function calculateEta(
     pace: ReturnType<typeof paceEstimate>;
   },
 ): number | null {
-  if (r.status === "complete" || !r.fix) return null;
+  if (r.status === "complete" || !r.fix || stationSkipped(r, targetStationId))
+    return null;
   if (targetStationKm <= r.progressKm) return null;
 
   const dwell = context?.dwell ?? stationDwellStatus(r, now);
   const pace = context?.pace ?? paceEstimate(r);
   const useOverall = dwell.atStation || pace.source === "overall";
-  const effectivePace = useOverall ? speed(r) : pace.kmh;
+  const effectivePace =
+    r.journey?.phase === "returning"
+      ? pace.kmh
+      : useOverall
+        ? speed(r)
+        : pace.kmh;
   if (!(effectivePace > 0)) return null;
 
   const distKm = targetStationKm - r.progressKm;
   const travelTimeMs = (distKm / effectivePace) * 3600000;
 
   const intermediateStations = r.stations.filter((s) => {
-    if (s.id === "finish" || s.id === targetStationId) return false;
+    if (
+      s.id === "finish" ||
+      s.id === targetStationId ||
+      stationSkipped(r, s.id)
+    )
+      return false;
     if (dwell.atStation && dwell.station && s.id === dwell.station.id)
       return false;
     return (
@@ -228,6 +265,11 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   let out = structuredClone(r);
   if (out.status === "complete") return out;
   for (const fix of [...fixes].sort((a, b) => a.at - b.at)) {
+    if (out.outAndBack) {
+      applyOutAndBackFix(out, fix, now);
+      if ((out as Race).status === "complete") break;
+      continue;
+    }
     if (
       fix.at < out.startAt ||
       fix.at > now + 120000 ||
@@ -383,4 +425,222 @@ export function elevationProgress(
     completedM += rise * fraction;
   }
   return { totalM, completedM };
+}
+
+// Explicit mode for a full, retraced out-and-back GPX (turn at half distance).
+export function validOutAndBack(route: Coordinate[], ds = cumulative(route)) {
+  const total = ds.at(-1) ?? 0;
+  if (total < 0.6 || distance(route[0], route.at(-1)!) > 0.075) return false;
+  for (let i = 0; i <= 100; i++) {
+    const km = (total * i) / 200;
+    if (
+      distance(atDistance(route, ds, km), atDistance(route, ds, total - km)) >
+      0.075
+    )
+      return false;
+  }
+  return true;
+}
+export function stationSkipped(r: Race, id: string) {
+  const j = r.journey,
+    s = r.stations.find((s) => s.id === id);
+  if (
+    !s ||
+    j?.phase !== "returning" ||
+    r.splits.some((p) => p.stationId === id)
+  )
+    return false;
+  const turn = j.turnaroundKm!;
+  return s.km > turn + 0.001 && s.km < r.distances.at(-1)! - turn - 0.001;
+}
+export function completedDistance(r: Race) {
+  const j = r.journey;
+  return j?.phase === "returning"
+    ? Math.max(0, 2 * j.turnaroundKm! - j.positionKm)
+    : r.progressKm;
+}
+export function plannedDistance(r: Race) {
+  return r.journey?.phase === "returning"
+    ? 2 * r.journey.turnaroundKm!
+    : (r.distances.at(-1) ?? 0);
+}
+export function journeyMessage(r: Race) {
+  const j = r.journey;
+  if (!r.outAndBack) return "";
+  if (j?.phase !== "returning")
+    return "Out-and-back · outbound. Early return detection requires three return updates over at least 10 minutes and 0.1 mi of retreat.";
+  const early = j.turnaroundKm! < r.distances.at(-1)! / 2 - 0.075;
+  return `${r.status === "complete" ? "Returned to start" : early ? "Returning early" : "Returning"} · Turnaround at ${kmToMiles(j.turnaroundKm!).toFixed(2)} mi. ${r.status === "complete" ? "" : paceEstimate(r).source === "overall" ? "Finish ETA is provisional until return pace is established." : "Finish ETA uses observed return pace."}`;
+}
+export function journeyElevation(r: Race) {
+  const original = elevationProgress(r.distances, r.elevationsM, r.progressKm);
+  if (!original || r.journey?.phase !== "returning") return original;
+  const peak = r.journey.turnaroundKm!,
+    total = r.distances.at(-1)!;
+  const outbound = elevationProgress(r.distances, r.elevationsM, peak)!;
+  const returnStart = elevationProgress(
+    r.distances,
+    r.elevationsM,
+    total - peak,
+  )!;
+  return {
+    completedM:
+      outbound.completedM + original.completedM - returnStart.completedM,
+    totalM: outbound.completedM + original.totalM - returnStart.completedM,
+  };
+}
+export function setJourneyDirection(
+  r: Race,
+  direction: "returning" | "outbound",
+): Race {
+  if (!r.outAndBack || !r.fix || !r.journey || r.status === "complete")
+    throw Error("An active out-and-back race with GPS is required.");
+  const out = structuredClone(r),
+    j = out.journey!;
+  if (direction === "returning") {
+    if (j.phase === "returning") return out;
+    j.phase = "returning";
+    j.turnaroundKm = j.peakKm;
+    j.turnedAt = out.fix!.at;
+    j.returnSamples = [{ km: j.peakKm, at: j.peakAt }];
+    out.progressKm = out.distances.at(-1)! - j.positionKm;
+  } else {
+    if (j.phase === "outbound") return out;
+    j.phase = "outbound";
+    // Keep real outbound crossings; remove inferred return crossings on correction.
+    out.splits = out.splits.filter(
+      (s) =>
+        s.at <= j.peakAt &&
+        out.stations.find((t) => t.id === s.stationId)!.km <= j.peakKm,
+    );
+    out.progressKm = j.peakKm;
+    j.rearmKm = j.positionKm + 0.15;
+    delete j.turnaroundKm;
+    delete j.turnedAt;
+    delete j.returnSamples;
+  }
+  j.reverseCount = 0;
+  j.reverseAt = 0;
+  out.fix = { ...out.fix!, km: out.progressKm };
+  out.previousFix = null;
+  out.pendingFix = null;
+  return out;
+}
+function applyOutAndBackFix(r: Race, fix: Fix, now: number) {
+  if (fix.at < r.startAt || fix.at > now + 120000 || fix.at <= (r.fix?.at ?? 0))
+    return;
+  const total = r.distances.at(-1)!,
+    half = total / 2;
+  const previous = r.fix,
+    oldProgress = r.progressKm;
+  const j = r.journey ?? {
+    phase: "outbound" as const,
+    peakKm: 0,
+    peakAt: r.startAt,
+    positionKm: 0,
+    reverseCount: 0,
+    reverseAt: 0,
+  };
+  const hours = (fix.at - (previous?.at ?? r.startAt)) / 3600000;
+  const reach = Math.max(0.15, hours * 25);
+  const match = project(
+    r.route,
+    r.distances,
+    [fix.lng, fix.lat],
+    Math.max(0, j.positionKm - reach),
+    Math.min(half, j.positionKm + reach),
+  );
+  if (match.offKm > 0.25 || match.ambiguous) return;
+  const km = match.km,
+    wasReturning = j.phase === "returning";
+  if (j.phase === "outbound") {
+    if (km > j.peakKm) {
+      j.peakKm = km;
+      j.peakAt = fix.at;
+    }
+    if (j.rearmKm !== undefined && km >= j.rearmKm) delete j.rearmKm;
+    if (km < j.positionKm - 0.02 && j.peakKm - km >= 0.05) {
+      j.reverseCount++;
+      if (!j.reverseAt) j.reverseAt = fix.at;
+    } else if (km > j.positionKm + 0.03 || j.peakKm - km < 0.05) {
+      j.reverseCount = 0;
+      j.reverseAt = 0;
+    }
+    const normalReturn = j.peakKm >= half - 0.075 && km < j.peakKm - 0.05;
+    const earlyReturn =
+      j.rearmKm === undefined &&
+      j.peakKm >= 0.3 &&
+      j.peakKm - km >= 0.15 &&
+      j.reverseCount >= 3 &&
+      fix.at - j.reverseAt >= 600000;
+    if (normalReturn || earlyReturn) {
+      j.phase = "returning";
+      j.turnaroundKm = j.peakKm;
+      j.turnedAt = fix.at;
+      j.returnSamples = [{ km: j.peakKm, at: j.peakAt }];
+    }
+  }
+  // Use current position on the return so a brief uphill backtrack updates the ETA.
+  j.positionKm = km;
+  r.journey = j;
+  const progress =
+    j.phase === "returning"
+      ? total - km
+      : j.peakKm;
+  if (j.phase === "returning") {
+    j.returnSamples = [...(j.returnSamples ?? []), { km, at: fix.at }].slice(
+      -100,
+    );
+  }
+  const fromKm =
+    !wasReturning && j.phase === "returning" ? total - j.peakKm : oldProgress;
+  const fromAt =
+    !wasReturning && j.phase === "returning"
+      ? j.peakAt
+      : (previous?.at ?? r.startAt);
+  for (const station of r.stations) {
+    if (
+      station.id === "finish" ||
+      stationSkipped(r, station.id) ||
+      station.km > progress ||
+      station.km < fromKm ||
+      r.splits.some((s) => s.stationId === station.id)
+    )
+      continue;
+    const fraction = Math.max(
+      0,
+      Math.min(1, (station.km - fromKm) / (progress - fromKm || 1)),
+    );
+    r.splits.push({
+      stationId: station.id,
+      at: Math.round(fromAt + (fix.at - fromAt) * fraction),
+      estimated: true,
+    });
+  }
+  r.previousFix = previous;
+  r.fix = { ...fix, km: progress };
+  r.progressKm = progress;
+  r.pendingFix = null;
+  r.track = [...r.track, { ...fix, km: progress }].slice(-2000);
+  r.status = "live";
+  if (
+    j.phase === "returning" &&
+    km < 0.05 &&
+    distance([fix.lng, fix.lat], r.route[0]) < 0.075
+  ) {
+    r.status = "complete";
+    r.finishedAt = fix.at;
+    r.progressKm = total;
+    j.positionKm = 0;
+    if (!r.splits.some((s) => s.stationId === "finish"))
+      r.splits.push({ stationId: "finish", at: fix.at, estimated: true });
+  }
+}
+
+export function stationDistance(r: Race, km: number) {
+  const j = r.journey,
+    total = r.distances.at(-1)!;
+  return j?.phase === "returning" && km >= total - j.turnaroundKm!
+    ? km - (total - 2 * j.turnaroundKm!)
+    : km;
 }

@@ -17,6 +17,12 @@ import { loadRace, saveRace } from "../lib/offline";
 import { subscribe } from "../lib/firebase";
 import { demoRace } from "../lib/demo";
 import {
+  completedDistance,
+  plannedDistance,
+  journeyElevation,
+  journeyMessage,
+  stationSkipped,
+  stationDistance,
   atDistance,
   elapsed,
   speed,
@@ -181,7 +187,9 @@ export default function Viewer({ id }: { id: string }) {
       </main>
     );
   const total = race.distances.at(-1) ?? 0,
-    percent = total ? (race.progressKm / total) * 100 : 0,
+    percent = plannedDistance(race)
+      ? (completedDistance(race) / plannedDistance(race)) * 100
+      : 0,
     overallSpeed = speed(race),
     rolling = etaBase!.pace.kmh,
     dwell = {
@@ -192,13 +200,11 @@ export default function Viewer({ id }: { id: string }) {
           : Math.max(0, now - etaBase!.dwell.arrivalAt),
     },
     next = race.stations.find(
-      (s) => !race.splits.some((p) => p.stationId === s.id),
+      (s) =>
+        !stationSkipped(race, s.id) &&
+        !race.splits.some((p) => p.stationId === s.id),
     );
-  const vert = elevationProgress(
-    race.distances,
-    race.elevationsM,
-    race.progressKm,
-  );
+  const vert = journeyElevation(race);
   const complete = race.status === "complete",
     scheduled = !complete && now < race.startAt;
   const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 750000);
@@ -243,8 +249,8 @@ export default function Viewer({ id }: { id: string }) {
           </div>
           <h1>{race.name}</h1>
           <p>
-            <Mountain size={15} /> {kmToMiles(total).toFixed(1)} mi course{" "}
-            <span>·</span> {race.stations.length - 1} aid stations{" "}
+            <Mountain size={15} /> {kmToMiles(plannedDistance(race)).toFixed(1)}{" "}
+            mi course <span>·</span> {race.stations.length - 1} aid stations{" "}
             <span>·</span> Self-directed adventure
           </p>
         </div>
@@ -282,12 +288,18 @@ export default function Viewer({ id }: { id: string }) {
           {error}
         </div>
       )}
+      {race.outAndBack && (
+        <div className="notice" role="status">
+          {journeyMessage(race)} Original plan: {kmToMiles(total).toFixed(1)}{" "}
+          mi.
+        </div>
+      )}
       <section className="stats">
         <div>
           <span>DISTANCE COVERED</span>
           <strong>
-            {kmToMiles(race.progressKm).toFixed(1)}{" "}
-            <small>/ {kmToMiles(total).toFixed(1)} mi</small>
+            {kmToMiles(completedDistance(race)).toFixed(1)}{" "}
+            <small>/ {kmToMiles(plannedDistance(race)).toFixed(1)} mi</small>
           </strong>
           <div className="mini-progress">
             <i style={{ width: `${Math.min(100, percent)}%` }} />
@@ -472,7 +484,7 @@ export default function Viewer({ id }: { id: string }) {
                   <div>
                     <h3>{s.name}</h3>
                     <p>
-                      {kmToMiles(s.km).toFixed(1)} mi{" "}
+                      {kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi{" "}
                       {isDwell && (
                         <b>
                           AT STATION (
@@ -507,11 +519,13 @@ export default function Viewer({ id }: { id: string }) {
                     <span>
                       {split
                         ? "Est. crossing"
-                        : complete
-                          ? "Not recorded"
-                          : arrival && arrival < now
-                            ? `Overdue by ${Math.max(1, Math.floor((now - arrival) / 60000))} min`
-                            : "ETA"}
+                        : stationSkipped(race, s.id)
+                          ? "Skipped · early return"
+                          : complete
+                            ? "Not recorded"
+                            : arrival && arrival < now
+                              ? `Overdue by ${Math.max(1, Math.floor((now - arrival) / 60000))} min`
+                              : "ETA"}
                     </span>
                   </div>
                 </div>

@@ -16,6 +16,8 @@ import RaceMap from "./race-map";
 import { api, subscribe } from "../lib/firebase";
 import { parseGpxWithElevation } from "../lib/gpx";
 import {
+  validOutAndBack,
+  journeyMessage,
   cumulative,
   kmToMiles,
   milesToKm,
@@ -41,6 +43,7 @@ const localDate = (n: number) => {
   return new Date(n - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
 export default function Editor({ token }: { token?: string }) {
+  const [outAndBack, setOutAndBack] = useState(false);
   const [health, setHealth] = useState<Race | null>(null);
   const [diagnostic, setDiagnostic] = useState("");
   const [testing, setTesting] = useState(false);
@@ -65,6 +68,7 @@ export default function Editor({ token }: { token?: string }) {
       .then(({ race }) => {
         setSaved(race);
         setName(race.name);
+        setOutAndBack(!!race.outAndBack);
         setStart(localDate(race.startAt));
         setRoute(race.route);
         setElevationsM(race.elevationsM ?? null);
@@ -113,7 +117,7 @@ export default function Editor({ token }: { token?: string }) {
   };
   const ds = useMemo(() => cumulative(route), [route]),
     total = ds.at(-1) ?? 0,
-    locked = !!saved?.fix || saved?.status === "complete";
+    locked = !!(health?.fix ?? saved?.fix) || (health?.status ?? saved?.status) === "complete";
   const preview: Race = {
     id: "preview",
     name,
@@ -161,7 +165,12 @@ export default function Editor({ token }: { token?: string }) {
     }
     setBusy(true);
     try {
+      if (outAndBack && !validOutAndBack(route))
+        throw Error(
+          "Out-and-back mode needs a full route that returns along the same trail, with the turnaround at half the mileage.",
+        );
       const body = {
+        outAndBack,
         name,
         startAt: locked && saved ? saved.startAt : new Date(start).getTime(),
         route,
@@ -320,6 +329,66 @@ export default function Editor({ token }: { token?: string }) {
                     knows your share name may find it outside Milemark.
                   </small>
                 </label>
+                <label className="direction-choice">
+                  <input
+                    type="checkbox"
+                    checked={outAndBack}
+                    disabled={locked}
+                    onChange={(e) => setOutAndBack(e.target.checked)}
+                  />{" "}
+                  Out-and-back · detect early turnaround
+                </label>
+                <small>
+                  Use a full GPX returning on the same trail, with the planned
+                  turnaround at half the mileage. Set this before tracking
+                  begins.
+                </small>
+                {saved?.outAndBack && (
+                  <div className="notice">
+                    <p>{journeyMessage(health ?? saved)}</p>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={
+                        busy ||
+                        !(health ?? saved).fix ||
+                        (health ?? saved).status === "complete"
+                      }
+                      onClick={async () => {
+                        setBusy(true);
+                        setError("");
+                        try {
+                          const result = await api(
+                            "/edit",
+                            "POST",
+                            {
+                              action:
+                                (health ?? saved).journey?.phase === "returning"
+                                  ? "resumeOutbound"
+                                  : "turnaround",
+                            },
+                            token,
+                          );
+                          setSaved(result.race);
+                          setHealth(result.race);
+                          setMessage("Direction updated for viewers.");
+                        } catch (e) {
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : "Could not update direction.",
+                          );
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {(health ?? saved).journey?.phase === "returning"
+                        ? "Resume original route"
+                        : "We’ve turned around"}
+                    </button>
+                  </div>
+                )}
                 {saved && (
                   <div className="feed-diagnostics" aria-live="polite">
                     <p>

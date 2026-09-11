@@ -7,6 +7,7 @@ import {
   atDistance,
   speed,
   rollingSpeed,
+  paceEstimate,
   stationDwellStatus,
   calculateEta,
   type Race,
@@ -425,4 +426,34 @@ test("replay seeks forward and backward without leaking future splits, including
   assert.equal(engine.seek(r.startAt-1).splits.length, 0);
   assert.deepEqual(engine.seek(points[2].at), finish);
   assert.equal(r.splits.length, 0);
+});
+
+test('out-and-back detects sustained early return without fabricating summit splits or mileage', async()=>{
+  const {validOutAndBack, completedDistance, plannedDistance, stationSkipped, journeyElevation, setJourneyDirection}=await import('../shared/race');
+  const {ReplayEngine}=await import('../lib/replay');
+  const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.05,0],[.1,0],[.05,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.elevationsM=[1000,1500,2000,1500,1000];
+  const total=r.distances.at(-1)!;
+  r.stations=[{id:'aid',name:'Outward aid',km:.8},{id:'summit',name:'Summit',km:total/2},{id:'return-aid',name:'Return aid',km:total-.8},{id:'finish',name:'Finish',km:total}];
+  assert.equal(validOutAndBack(r.route),true);assert.equal(validOutAndBack([[0,0],[.1,0],[.05,.05],[0,0]]),false);
+  const points=[0,.005,.01,.015,.02,.025,.03,.025,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
+  const engine=new ReplayEngine(r,points);
+  const suspect=engine.seek(points[8].at);assert.equal(suspect.journey?.phase,'outbound');assert.equal(suspect.splits.length,1);
+  const returning=engine.seek(points[9].at);assert.equal(returning.journey?.phase,'returning');assert.equal(stationSkipped(returning,'summit'),true);assert.equal(calculateEta(returning,total/2,'summit',points[9].at),null);
+  assert.ok(plannedDistance(returning)<total/2);assert.ok(completedDistance(returning)<plannedDistance(returning));
+  assert.ok(journeyElevation(returning)!.totalM<400);
+  const eta=calculateEta(returning,total,'finish',points[9].at);assert.ok(eta && eta>points[9].at);
+  const withReturnPace=engine.seek(points[10].at);assert.equal(paceEstimate(withReturnPace).source,'rolling');assert.ok(paceEstimate(withReturnPace).kmh<5);
+  const backtrack=applyFixes(withReturnPace,[{lng:.015,lat:0,at:points[11].at}],points[11].at);assert.ok(backtrack.progressKm<withReturnPace.progressKm);assert.equal(backtrack.splits.length,withReturnPace.splits.length);
+  const finished=engine.seek(points[12].at);assert.equal(finished.status,'complete');assert.equal(finished.splits.some(s=>s.stationId==='summit'),false);assert.equal(finished.splits.some(s=>s.stationId==='return-aid'),true);assert.equal(completedDistance(finished),plannedDistance(finished));
+  assert.equal(engine.seek(points[6].at).journey?.phase,'outbound');assert.deepEqual(engine.seek(points[12].at),finished);
+  const corrected=setJourneyDirection(returning,'outbound');assert.equal(corrected.journey?.phase,'outbound');assert.equal(stationSkipped(corrected,'summit'),false);assert.equal(applyFixes(corrected,[points[10]],points[10].at).journey?.phase,'outbound');
+  const manual=setJourneyDirection(suspect,'returning');assert.equal(manual.journey?.phase,'returning');assert.ok(plannedDistance(manual)<total);
+});
+
+test('out-and-back ignores a brief reversal and off-route GPS, and supports the planned turnaround', async()=>{
+  const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.stations=[{id:'summit',name:'Summit',km:r.distances.at(-1)!/2},{id:'finish',name:'Finish',km:r.distances.at(-1)!}];
+  const points=[0,.005,.01,.009,.015,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
+  const outbound=applyFixes(r,points.slice(0,5),points[4].at);assert.equal(outbound.journey?.phase,'outbound');
+  const off=applyFixes(outbound,[{lng:.015,lat:.1,at:points[4].at+60000}],points[5].at);assert.equal(off.fix?.at,outbound.fix?.at);
+  const result=applyFixes(outbound,points.slice(5),points.at(-1)!.at);assert.equal(result.status,'complete');assert.ok(result.splits.some(s=>s.stationId==='summit'));
 });

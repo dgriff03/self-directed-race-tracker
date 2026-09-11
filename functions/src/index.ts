@@ -4,7 +4,13 @@ import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { applyFixes, cumulative, type Race } from "../../shared/race.js";
+import {
+  applyFixes,
+  cumulative,
+  validOutAndBack,
+  setJourneyDirection,
+  type Race,
+} from "../../shared/race.js";
 import { requestIp } from "./request-ip.js";
 import { fetchFeed, validateFeed } from "./feed.js";
 initializeApp();
@@ -12,6 +18,7 @@ const db = getDatabase();
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const uuid = z.string().uuid();
 const configSchema = z.object({
+  outAndBack: z.boolean().optional().default(false),
   name: z.string().trim().min(1).max(100),
   startAt: z.number().int().min(0).max(4102444800000),
   route: z
@@ -96,6 +103,7 @@ export const api = onRequest(
         const ds = cumulative(input.route);
         const total = ds.at(-1)!;
         if (
+          (input.outAndBack && !validOutAndBack(input.route, ds)) ||
           total < 0.1 ||
           total > 2000 ||
           input.stations.some((s) => s.km >= total) ||
@@ -107,6 +115,7 @@ export const api = onRequest(
           editToken = randomUUID();
         const race: Race = {
           id,
+          outAndBack: input.outAndBack,
           name: input.name,
           startAt: input.startAt,
           route: input.route,
@@ -161,6 +170,44 @@ export const api = onRequest(
           return;
         }
         if (req.method === "POST") {
+          if (
+            req.body.action === "turnaround" ||
+            req.body.action === "resumeOutbound"
+          ) {
+            const result = await ref.transaction((raw) => {
+              if (!raw) return raw;
+              const current = normalizeRace(raw);
+              if (
+                !current.outAndBack ||
+                !current.fix ||
+                !current.journey ||
+                current.status === "complete"
+              )
+                return raw;
+              return {
+                ...setJourneyDirection(
+                  current,
+                  req.body.action === "turnaround" ? "returning" : "outbound",
+                ),
+                revision: current.revision + 1,
+              };
+            });
+            if (!result.committed || !result.snapshot.exists()) {
+              res
+                .status(409)
+                .json({
+                  error: "An active out-and-back race with GPS is required.",
+                });
+              return;
+            }
+            const finalRace = normalizeRace(result.snapshot.val());
+            if (!finalRace.outAndBack || !finalRace.fix || !finalRace.journey || finalRace.status === 'complete') {
+              res.status(409).json({error:'An active out-and-back race with GPS is required.'});return;
+            }
+            res.json({ race: finalRace });
+            return;
+          }
+
           if (req.body.action === "testFeed" && race.status !== "complete") {
             const jobRef = db.ref(`jobs/${id}`);
             const claim = await jobRef.transaction((v) =>
@@ -230,6 +277,7 @@ export const api = onRequest(
         const ds = cumulative(input.route),
           total = ds.at(-1)!;
         if (
+          (input.outAndBack && !validOutAndBack(input.route, ds)) ||
           total < 0.1 ||
           total > 2000 ||
           input.stations.some((s) => s.km >= total) ||
@@ -248,6 +296,7 @@ export const api = onRequest(
           if (current.fix || current.status === "complete") {
             if (
               JSON.stringify(current.route) !== JSON.stringify(input.route) ||
+              !!current.outAndBack !== input.outAndBack ||
               current.startAt !== input.startAt ||
               !sameStations(
                 current.stations.filter((s) => s.id !== "finish"),
@@ -258,6 +307,7 @@ export const api = onRequest(
           }
           return {
             ...current,
+            outAndBack: input.outAndBack,
             name: input.name,
             startAt: input.startAt,
             route: input.route,
