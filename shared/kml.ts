@@ -1,8 +1,8 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import type { Fix } from "./race.js";
-export function parseKml(xml: string): Fix[] {
+export function parseKml(xml: string, maxLength = 5_000_000): Fix[] {
   if (
-    xml.length > 5_000_000 ||
+    xml.length > maxLength ||
     /<!DOCTYPE|<!ENTITY/i.test(xml) ||
     XMLValidator.validate(xml) !== true
   )

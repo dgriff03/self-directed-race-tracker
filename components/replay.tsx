@@ -97,9 +97,9 @@ export default function Replay() {
     setPlaying(false);
     setError("");
     try {
-      if (file.size > (kind === "gpx" ? 10_000_000 : 5_000_000))
+      if (file.size > (kind === "gpx" ? 10_000_000 : 25_000_000))
         throw Error(
-          `${kind.toUpperCase()} file is too large (limit ${kind === "gpx" ? 10 : 5} MB).`,
+          `${kind.toUpperCase()} file is too large (limit ${kind === "gpx" ? 10 : 25} MB).`,
         );
       const text = await file.text();
       if (version !== uploads.current[kind]) return;
@@ -110,7 +110,7 @@ export default function Replay() {
         setStations([]);
         setCursor(lower);
       } else {
-        const parsed = parseKml(text);
+        const parsed = parseKml(text, 25_000_000);
         if (!parsed.length)
           throw Error(
             "This KML has no timestamped GPS positions. Use Garmin KML with timestamps or a gx:Track.",
@@ -161,7 +161,7 @@ export default function Replay() {
               accept=".kml,.klm,application/vnd.google-earth.kml+xml"
               onChange={(e) => void upload("kml", e.target.files?.[0])}
             />
-            <small>{kmlName || "Up to 5 MB · timestamps required"}</small>
+            <small>{kmlName || "Up to 25 MB · 10,000 positions · timestamps required"}</small>
           </label>
         </div>
         {error && (
@@ -252,11 +252,12 @@ export default function Replay() {
               <span>{stamp(lower)}</span>
               <span>{stamp(last)}</span>
             </div>
-            <details>
-              <summary>Aid stations for testing</summary>
+            <section className="replay-stations">
+              <h2>Add aid stations</h2>
               <p>
-                Click the route to choose a distance or enter miles. Finish is
-                included automatically.
+                Enter a station name and its distance in miles, then click Add station.
+                You can also click the route on the map below to fill in the distance.
+                The finish line is included automatically.
               </p>
               <div className="replay-uploads">
                 <label>
@@ -316,7 +317,7 @@ export default function Replay() {
                   </button>
                 </p>
               ))}
-            </details>
+            </section>
           </>
         )}
       </section>

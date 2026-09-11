@@ -1027,9 +1027,9 @@ footer {
 .replay-timeline output { font-size: 1.15rem; font-weight: 650; }
 .replay-controls input[type=range] { accent-color: #e85c26; padding: 0; height: 32px; cursor: pointer; }
 .replay-ends { display: flex; justify-content: space-between; gap: 16px; font-size: .8rem; }
-.replay-controls details { border-top: 1px solid var(--border); padding-top: 20px; }
+.replay-stations { border-top: 1px solid var(--border); padding-top: 20px; }
 .replay-controls summary { cursor: pointer; font-weight: 650; }
-.replay-controls details .button { margin-top: 16px; }
+.replay-stations .button { margin-top: 16px; }
 .replay-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: white; border: 1px solid var(--border); border-radius: 12px; }
 .replay-stats > div { padding: 20px; display: grid; gap: 8px; }
 .replay-stats strong { font-size: 1.25rem; }
