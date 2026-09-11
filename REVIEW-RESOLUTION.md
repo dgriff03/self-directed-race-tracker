@@ -28,3 +28,5 @@ Validation: course/feed unit tests; TypeScript and frontend/functions builds; sc
 - Normalized uppercase UUIDs, memoized map geometry signatures, included dates with times, added latency copy, quota cleanup, HSTS and CSP, and automatic production-test cleanup.
 - Rewrote architecture documentation to match current behavior.
 - Garmin connectivity and empty-feed handling were verified on September 11, 2026 with the organizer-supplied feed, both locally through the production fetcher and from the deployed Cloud Function. HTTP 200, no redirect, millisecond ISO d1 accepted, zero recent positions. Temporary verification data was removed. Moving-device ingestion and live splits remain unverified.
+
+Additional real-data verification: the deployed Cloud Function parsed 145 historical timestamped points from the second supplied Garmin feed using a September 6, 2026 d1 filter. Latest fix: September 7 at 18:25:30 UTC. No positions in the last 24 hours; temporary records removed. Course-specific split matching remains outside this feed-only check.
