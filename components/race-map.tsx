@@ -234,14 +234,16 @@ export default function RaceMap({
         );
       };
       marker(race.route[0], "Start", "start", "S");
-      race.stations.forEach((s, i) =>
+      race.stations.forEach((s, i) => {
+        if (s.returnOf) return;
+        const returning = race.stations.find((t) => t.returnOf === s.id);
         marker(
           atDistance(race.route, race.distances, s.km),
-          `${s.name} · ${kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi${stationSkipped(race, s.id) ? " · Skipped on early return" : ""}`,
+          `${s.name} · ${kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi${returning ? ` · Return visit at ${kmToMiles(stationDistance(race, returning.km)).toFixed(1)} mi` : ""}${stationSkipped(race, s.id) ? " · Skipped on early return" : ""}`,
           race.splits.some((p) => p.stationId === s.id) ? "passed" : "aid",
           s.id === "finish" ? "F" : String(i + 1),
-        ),
-      );
+        );
+      });
       if (race.fix)
         marker(
           [race.fix.lng, race.fix.lat],

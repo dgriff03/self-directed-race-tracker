@@ -514,3 +514,31 @@ test('manual turnaround retains movement evidence so it cannot manufacture dwell
  r.journey={phase:'outbound',positionKm:.8,peakKm:.8,peakAt:at,reverseAt:0,reverseCount:0};r.stations=[{id:'return-aid',name:'Return aid',km:total-.8}];r.splits=[{stationId:'return-aid',at:r.startAt,estimated:true}];
  const turned=setJourneyDirection(r,'returning');assert.equal(turned.previousFix?.at,r.previousFix.at);assert.equal(stationDwellStatus(turned,at).atStation,false);
 });
+
+test('out-and-back visits mirror outbound aids once, keep the summit single and respect manual return entries',async()=>{
+ const {stationVisits}=await import('../shared/race');
+ const stations=[{id:'a',name:'Lower aid',km:3},{id:'b',name:'Upper aid',km:7},{id:'summit',name:'Summit',km:9.92},{id:'finish',name:'Finish',km:20}];
+ const visits=stationVisits(stations,[0,10,20],true);
+ assert.deepEqual(visits.map(s=>s.id),['a','b','summit','return-b','return-a','finish']);
+ assert.equal(visits.find(s=>s.id==='return-b')?.km,13);
+ assert.deepEqual(stationVisits(visits,[0,10,20],true),visits);
+ assert.deepEqual(stationVisits(stations,[0,10,20],false),stations);
+ assert.equal(stationVisits([...stations,{id:'custom-return',name:'Lower aid return',km:17}],[0,10,20],true).some(s=>s.id==='return-a'),false);
+});
+test('generated return visits have independent splits and disappear on backward replay',async()=>{
+ const {ReplayEngine}=await import('../lib/replay');
+ const r=race();r.startAt=Date.UTC(2040,0,1);r.outAndBack=true;r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);const total=r.distances.at(-1)!;
+ r.stations=[{id:'a',name:'Aid',km:.8},{id:'summit',name:'Summit',km:total/2},{id:'finish',name:'Finish',km:total}];
+ const points=[0,.005,.01,.015,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
+ const engine=new ReplayEngine(r,points),complete=engine.seek(points.at(-1)!.at);
+ assert.equal(complete.status,'complete');assert.deepEqual(complete.splits.map(s=>s.stationId),['a','summit','return-a','finish']);
+ assert.ok(complete.splits.find(s=>s.stationId==='return-a')!.at>complete.splits.find(s=>s.stationId==='summit')!.at);
+ const outbound=engine.seek(points[3].at);assert.equal(outbound.splits.some(s=>s.stationId==='return-a'),false);assert.ok(calculateEta(outbound,total-.8,'return-a',points[3].at));
+});
+
+test('early return skips both visits above the turnaround but records the generated lower return visit',async()=>{
+ const {stationSkipped}=await import('../shared/race');const r=race();r.startAt=Date.UTC(2040,0,1);r.outAndBack=true;r.route=[[0,0],[.04,0],[0,0]];r.distances=cumulative(r.route);const total=r.distances.at(-1)!;
+ r.stations=[{id:'low',name:'Lower',km:.5},{id:'high',name:'Upper',km:3},{id:'summit',name:'Summit',km:total/2},{id:'finish',name:'Finish',km:total}];
+ const points=[0,.005,.01,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
+ const result=applyFixes(r,points,points.at(-1)!.at);assert.equal(result.status,'complete');assert.deepEqual(result.splits.map(s=>s.stationId),['low','return-low','finish']);assert.equal(stationSkipped(result,'high'),true);assert.equal(stationSkipped(result,'return-high'),true);
+});

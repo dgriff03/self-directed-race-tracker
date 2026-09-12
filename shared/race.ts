@@ -1,5 +1,10 @@
 export type Coordinate = [number, number];
-export type Station = { id: string; name: string; km: number };
+export type Station = {
+  id: string;
+  name: string;
+  km: number;
+  returnOf?: string;
+};
 export type Fix = {
   lng: number;
   lat: number;
@@ -269,6 +274,7 @@ export function calculateEta(
 
 export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   let out = structuredClone(r);
+  out.stations = stationVisits(out.stations, out.distances, out.outAndBack);
   if (out.status === "complete") return out;
   for (const fix of [...fixes].sort((a, b) => a.at - b.at)) {
     if (out.outAndBack) {
@@ -710,4 +716,38 @@ export function stationDistance(r: Race, km: number) {
   return j?.phase === "returning" && km >= total - j.turnaroundKm!
     ? km - (total - 2 * j.turnaroundKm!)
     : km;
+}
+
+// Derived visits keep existing station IDs/splits stable and work for races
+// created before return visits were introduced. Summit vicinity is one visit.
+export function stationVisits(
+  stations: Station[],
+  distances: number[],
+  outAndBack?: boolean,
+): Station[] {
+  const original = stations.filter((s) => !s.returnOf);
+  const total = distances.at(-1) ?? 0;
+  if (!outAndBack || !total) return original;
+  const visits = [...original];
+  for (const station of original) {
+    if (station.id === "finish" || station.km >= total / 2 - 0.15) continue;
+    const returnKm = total - station.km;
+    // Respect an organizer's explicitly configured return visit at this point.
+    if (
+      original.some(
+        (s) =>
+          s.id !== "finish" &&
+          s.km > total / 2 &&
+          Math.abs(s.km - returnKm) <= 0.1,
+      )
+    )
+      continue;
+    visits.push({
+      id: `return-${station.id}`,
+      name: `${station.name} · return`,
+      km: returnKm,
+      returnOf: station.id,
+    });
+  }
+  return visits.sort((a, b) => a.km - b.km || a.id.localeCompare(b.id));
 }

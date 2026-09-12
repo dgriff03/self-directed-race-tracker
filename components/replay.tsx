@@ -12,6 +12,7 @@ import {
   journeyMessage,
   stationSkipped,
   stationDistance,
+  stationVisits,
   cumulative,
   kmToMiles,
   milesToKm,
@@ -77,10 +78,11 @@ export default function Replay() {
             route: course.route,
             elevationsM: course.elevationsM,
             distances: ds,
-            stations: [
-              ...stations,
-              { id: "finish", name: "Finish line", km: total },
-            ],
+            stations: stationVisits(
+              [...stations, { id: "finish", name: "Finish line", km: total }],
+              ds,
+              outAndBack,
+            ),
             status: "live",
             progressKm: 0,
             fix: null,

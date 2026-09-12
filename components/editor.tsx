@@ -18,6 +18,7 @@ import { parseGpxWithElevation } from "../lib/gpx";
 import {
   validOutAndBack,
   journeyMessage,
+  stationVisits,
   cumulative,
   kmToMiles,
   milesToKm,
@@ -72,7 +73,11 @@ export default function Editor({ token }: { token?: string }) {
         setStart(localDate(race.startAt));
         setRoute(race.route);
         setElevationsM(race.elevationsM ?? null);
-        setStations(race.stations.filter((s: Station) => s.id !== "finish"));
+        setStations(
+          race.stations.filter(
+            (s: Station) => s.id !== "finish" && !s.returnOf,
+          ),
+        );
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -117,7 +122,9 @@ export default function Editor({ token }: { token?: string }) {
   };
   const ds = useMemo(() => cumulative(route), [route]),
     total = ds.at(-1) ?? 0,
-    locked = !!(health?.fix ?? saved?.fix) || (health?.status ?? saved?.status) === "complete";
+    locked =
+      !!(health?.fix ?? saved?.fix) ||
+      (health?.status ?? saved?.status) === "complete";
   const preview: Race = {
     id: "preview",
     name,
@@ -125,7 +132,12 @@ export default function Editor({ token }: { token?: string }) {
     route,
     distances: ds,
     elevationsM,
-    stations: [...stations, { id: "finish", name: "Finish line", km: total }],
+    stations: stationVisits(
+      [...stations, { id: "finish", name: "Finish line", km: total }],
+      ds,
+      outAndBack,
+    ),
+    outAndBack,
     status: "scheduled",
     progressKm: 0,
     fix: null,
@@ -301,7 +313,9 @@ export default function Editor({ token }: { token?: string }) {
                   />
                   <small>
                     In your local timezone:{" "}
-                    {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                    {Intl.DateTimeFormat().resolvedOptions().timeZone}. Leaving
+                    early? Update this time before the first GPS position is
+                    accepted; earlier positions are ignored.
                   </small>
                 </label>
                 <label>
@@ -505,12 +519,23 @@ export default function Editor({ token }: { token?: string }) {
                   Click the route to choose a distance, or enter it below. For
                   loops, use the distance of that particular visit.
                 </p>
+                {outAndBack && (
+                  <p className="field-note">
+                    Return visits are automatic, except within 0.09 mi of the
+                    midpoint. Edit the outbound station to update both visits.
+                  </p>
+                )}
                 {stations.map((s) => (
                   <div className="edit-station" key={s.id}>
                     <MapPin size={17} />
                     <div>
                       <strong>{s.name}</strong>
-                      <span>{kmToMiles(s.km).toFixed(2)} mi from start</span>
+                      <span>
+                        {kmToMiles(s.km).toFixed(2)} mi from start
+                        {preview.stations.find((v) => v.returnOf === s.id)
+                          ? ` · return at ${kmToMiles(total - s.km).toFixed(2)} mi`
+                          : ""}
+                      </span>
                     </div>
                     <button
                       type="button"

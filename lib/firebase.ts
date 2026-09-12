@@ -6,7 +6,7 @@ import {
   onValue,
   ref,
 } from "firebase/database";
-import type { Race } from "../shared/race";
+import { stationVisits, type Race } from "../shared/race";
 type Config = {
   apiKey: string;
   databaseURL: string;
@@ -61,7 +61,7 @@ export function normalize(v: Race): Race {
     ...v,
     route: v.route ?? [],
     distances: v.distances ?? [],
-    stations: v.stations ?? [],
+    stations: stationVisits(v.stations ?? [], v.distances ?? [], v.outAndBack),
     splits: v.splits ?? [],
     track: v.track ?? [],
     fix: v.fix ?? null,

@@ -5,6 +5,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  stationVisits,
   applyFixes,
   cumulative,
   validOutAndBack,
@@ -58,7 +59,7 @@ export function normalizeRace(v: any): Race {
     ...v,
     route: v.route ?? [],
     distances: v.distances ?? [],
-    stations: v.stations ?? [],
+    stations: stationVisits(v.stations ?? [], v.distances ?? [], v.outAndBack),
     splits: v.splits ?? [],
     track: v.track ?? [],
     fix: v.fix ?? null,
@@ -193,16 +194,24 @@ export const api = onRequest(
               };
             });
             if (!result.committed || !result.snapshot.exists()) {
+              res.status(409).json({
+                error: "An active out-and-back race with GPS is required.",
+              });
+              return;
+            }
+            const finalRace = normalizeRace(result.snapshot.val());
+            if (
+              !finalRace.outAndBack ||
+              !finalRace.fix ||
+              !finalRace.journey ||
+              finalRace.status === "complete"
+            ) {
               res
                 .status(409)
                 .json({
                   error: "An active out-and-back race with GPS is required.",
                 });
               return;
-            }
-            const finalRace = normalizeRace(result.snapshot.val());
-            if (!finalRace.outAndBack || !finalRace.fix || !finalRace.journey || finalRace.status === 'complete') {
-              res.status(409).json({error:'An active out-and-back race with GPS is required.'});return;
             }
             res.json({ race: finalRace });
             return;
@@ -299,7 +308,9 @@ export const api = onRequest(
               !!current.outAndBack !== input.outAndBack ||
               current.startAt !== input.startAt ||
               !sameStations(
-                current.stations.filter((s) => s.id !== "finish"),
+                current.stations.filter(
+                  (s) => s.id !== "finish" && !s.returnOf,
+                ),
                 input.stations,
               )
             )

@@ -14,7 +14,7 @@ import {
 import RaceMap from "./race-map";
 import { Checkbox } from "./ui/checkbox";
 import { loadRace, saveRace } from "../lib/offline";
-import { subscribe } from "../lib/firebase";
+import { subscribe, normalize } from "../lib/firebase";
 import { demoRace } from "../lib/demo";
 import {
   completedDistance,
@@ -94,7 +94,7 @@ export default function Viewer({ id }: { id: string }) {
     let receivedLive = false;
     loadRace(id)
       .then((cached) => {
-        if (!stopped && !receivedLive && cached) setRace(cached);
+        if (!stopped && !receivedLive && cached) setRace(normalize(cached));
       })
       .catch(() => {});
     subscribe(
@@ -498,12 +498,12 @@ export default function Viewer({ id }: { id: string }) {
                         Split{" "}
                         {elapsed(
                           split.at -
-                            (i
-                              ? (race.splits.find(
-                                  (p) =>
-                                    p.stationId === race.stations[i - 1].id,
-                                )?.at ?? race.startAt)
-                              : race.startAt),
+                            Math.max(
+                              race.startAt,
+                              ...race.splits
+                                .filter((p) => p.at < split.at)
+                                .map((p) => p.at),
+                            ),
                         )}
                       </p>
                     )}
