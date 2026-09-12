@@ -18,6 +18,7 @@ export type Race = {
   name: string;
   startAt: number;
   actualStartAt?: number;
+  startLineFix?: Fix;
   route: Coordinate[];
   distances: number[];
   elevationsM?: number[] | null;
@@ -276,6 +277,22 @@ export function calculateEta(
 export const EARLY_START_MS = 3600000;
 export const raceStart = (r: Race) => r.actualStartAt ?? r.startAt;
 
+// Early tracker warm-up is not a departure. Keep the last position at the
+// trailhead as the timing anchor, but only start after an accepted departure.
+function waitingAtStart(r: Race, fix: Fix): boolean {
+  if (r.fix || fix.at >= r.startAt) return false;
+  if (r.startLineFix && fix.at <= r.startLineFix.at) return true;
+  if (distance(r.route[0], [fix.lng, fix.lat]) <= 0.05) {
+    r.startLineFix = fix;
+    return true;
+  }
+  return false;
+}
+function recordDeparture(r: Race, fix: Fix) {
+  if (!r.fix && fix.at < r.startAt)
+    r.actualStartAt = r.startLineFix?.at ?? fix.at;
+}
+
 export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   let out = structuredClone(r);
   out.stations = stationVisits(out.stations, out.distances, out.outAndBack);
@@ -293,7 +310,11 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
     )
       continue;
     const hours =
-      (fix.at - (out.fix?.at ?? Math.min(fix.at, raceStart(out)))) / 3600000;
+      (fix.at -
+        (out.fix?.at ??
+          out.startLineFix?.at ??
+          Math.min(fix.at, raceStart(out)))) /
+      3600000;
     const match = project(
       out.route,
       out.distances,
@@ -302,6 +323,7 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       out.progressKm + Math.max(0.3, hours * 25),
     );
     if (match.offKm > 0.25) continue;
+    if (waitingAtStart(out, fix)) continue;
     const km = Math.max(out.progressKm, match.km);
     const pending = out.pendingFix;
     const recentHours =
@@ -345,8 +367,7 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       (pending.km ?? 0) <= km
         ? pending
         : null;
-    if (!out.fix && fix.at < out.startAt)
-      out.actualStartAt = confirmedPending?.at ?? fix.at;
+    recordDeparture(out, confirmedPending ?? fix);
     for (const station of out.stations) {
       if (
         station.km <= km &&
@@ -582,7 +603,9 @@ function applyOutAndBackFix(
     reverseAt: 0,
   };
   const hours =
-    (fix.at - (previous?.at ?? Math.min(fix.at, raceStart(r)))) / 3600000;
+    (fix.at -
+      (previous?.at ?? r.startLineFix?.at ?? Math.min(fix.at, raceStart(r)))) /
+    3600000;
   const reach = Math.max(0.15, hours * 25);
   const match = project(
     r.route,
@@ -592,6 +615,7 @@ function applyOutAndBackFix(
     Math.min(half, j.positionKm + reach),
   );
   if (match.offKm > 0.25) return;
+  if (waitingAtStart(r, fix)) return;
   const pending = r.pendingFix;
   const km = confirmedKm ?? match.km;
   const previousKm = previous?.outboundKm ?? j.positionKm;
@@ -637,7 +661,7 @@ function applyOutAndBackFix(
     if (r.status !== "complete") applyOutAndBackFix(r, fix, now, km);
     return;
   }
-  if (!r.fix && fix.at < r.startAt) r.actualStartAt = fix.at;
+  recordDeparture(r, fix);
   const wasReturning = j.phase === "returning";
   if (j.phase === "outbound") {
     if (km > j.peakKm) {

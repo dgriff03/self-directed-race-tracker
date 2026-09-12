@@ -15,7 +15,8 @@
     "public": "dist/client",
     "ignore": [
       "firebase.json",
-      "**/.*"
+      "**/.*",
+      "courses/**"
     ],
     "rewrites": [
       {

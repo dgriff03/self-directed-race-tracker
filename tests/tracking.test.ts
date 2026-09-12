@@ -884,16 +884,23 @@ test("early start window accepts boundary fixes and uses actual time in both mod
     assert.equal(ignored.fix, null);
     assert.equal(ignored.actualStartAt, undefined);
     const started = applyFixes(r, [{ lng: 0, lat: 0, at: early }], r.startAt);
-    assert.equal(started.actualStartAt, early);
+    assert.equal(started.actualStartAt, undefined);
     assert.equal(started.startAt, r.startAt);
-    assert.equal(started.status, "live");
-    const moved = applyFixes(
+    assert.equal(started.status, "scheduled");
+    const waiting = applyFixes(
       started,
+      [{ lng: 0.0001, lat: 0, at: early + 600000 }],
+      r.startAt,
+    );
+    assert.equal(waiting.fix, null);
+    assert.equal(waiting.actualStartAt, undefined);
+    const moved = applyFixes(
+      waiting,
       [{ lng: 0.009, lat: 0, at: early + 1800000 }],
       r.startAt,
     );
-    assert.equal(moved.actualStartAt, early);
-    assert.ok(speed(moved) > 1 && speed(moved) < 3);
+    assert.equal(moved.actualStartAt, early + 600000);
+    assert.ok(speed(moved) > 1 && speed(moved) < 4);
     assert.ok(
       moved.splits.every((s) => s.at >= early && s.at <= early + 1800000),
     );
@@ -905,5 +912,33 @@ test("early start window accepts boundary fixes and uses actual time in both mod
       r.startAt + 600000,
     );
     assert.equal(late.actualStartAt, undefined);
+  }
+});
+
+test("dense replay backward checkpoint seeks match a fresh reconstruction", async () => {
+  const { ReplayEngine } = await import("../lib/replay");
+  const r = race();
+  r.route = Array.from(
+    { length: 6000 },
+    (_, i) => [(i / 5999) * 0.1, 0] as [number, number],
+  );
+  r.distances = cumulative(r.route);
+  r.stations = [{ id: "aid", name: "Aid", km: 1 }];
+  const points = Array.from({ length: 10000 }, (_, i) => ({
+    lng: (i / 10000) * 0.08,
+    lat: 0,
+    at: r.startAt + i * 1000,
+  }));
+  const engine = new ReplayEngine(r, points);
+  engine.seek(points.at(-1)!.at);
+  for (const count of [8701, 2300, 6301, 1, 0, 9999]) {
+    const at = count ? points[count - 1].at : r.startAt - 1;
+    const start = performance.now();
+    const result = engine.seek(at);
+    console.log(
+      `Dense replay seek ${count}: ${Math.round(performance.now() - start)}ms`,
+    );
+    const expected = applyFixes(r, points.slice(0, count), at);
+    assert.deepEqual(result, expected);
   }
 });

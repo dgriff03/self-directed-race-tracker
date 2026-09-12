@@ -91,6 +91,7 @@ export async function subscribe(
     "name",
     "startAt",
     "actualStartAt",
+    "startLineFix",
     "route",
     "distances",
     "elevationsM",

@@ -191,6 +191,7 @@ export const api = onRequest(
                   current,
                   req.body.action === "turnaround" ? "returning" : "outbound",
                 ),
+                stations: current.stations.filter((s) => !s.returnOf),
                 revision: current.revision + 1,
               };
             });
@@ -472,6 +473,7 @@ export const pollGarmin = onSchedule(
                 const updated = applyFixes(current, fixes);
                 return {
                   ...updated,
+                  stations: updated.stations.filter((s) => !s.returnOf),
                   status:
                     updated.status === "scheduled" &&
                     Date.now() >= updated.startAt

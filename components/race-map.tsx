@@ -55,6 +55,11 @@ export default function RaceMap({
     [routeKey],
   );
   const [failedProvider, setFailedProvider] = useState<string | null>(null);
+  useEffect(() => {
+    if (!failedProvider) return;
+    const timer = setTimeout(() => setFailedProvider(null), 60000);
+    return () => clearTimeout(timer);
+  }, [failedProvider]);
   const basemap =
     failedProvider === preferred.url && preferred.url === USGS.url
       ? OSM
@@ -179,7 +184,10 @@ export default function RaceMap({
         Math.max(...race.route.map((p) => p[1])),
       ],
     ];
-    map.fitBounds(bounds, { padding: element.current!.clientWidth < 500 ? 36 : 55, duration: 0 });
+    map.fitBounds(bounds, {
+      padding: element.current!.clientWidth < 500 ? 36 : 55,
+      duration: 0,
+    });
   }, [ready, routeKey]);
   useEffect(() => {
     const map = mapRef.current;

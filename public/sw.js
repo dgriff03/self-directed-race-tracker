@@ -1,34 +1,35 @@
-const VERSION = "milemark-v17";
+const VERSION = "milemark-v18";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 const TILE_TEMPLATES = [
   "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
   "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 ];
-function matchesTile(url) {
-  return TILE_TEMPLATES.some((template) => {
-    const normalized = new URL(template, self.location.origin).href
-      .replace(/%7B/gi, "{")
-      .replace(/%7D/gi, "}");
-    const tokens = normalized.split(/(\{(?:z|x|y|-y|s|r)\})/g);
-    if (
-      !tokens.includes("{z}") ||
-      !tokens.includes("{x}") ||
-      !(tokens.includes("{y}") || tokens.includes("{-y}"))
+const TILE_PATTERNS = TILE_TEMPLATES.map((template) => {
+  const normalized = new URL(template, self.location.origin).href
+    .replace(/%7B/gi, "{")
+    .replace(/%7D/gi, "}");
+  const tokens = normalized.split(/(\{(?:z|x|y|-y|s|r)\})/g);
+  if (
+    !tokens.includes("{z}") ||
+    !tokens.includes("{x}") ||
+    !(tokens.includes("{y}") || tokens.includes("{-y}"))
+  )
+    return null;
+  const pattern = tokens
+    .map((t) =>
+      /^\{/.test(t)
+        ? t === "{s}"
+          ? "[a-z0-9-]+"
+          : t === "{r}"
+            ? "(?:@2x)?"
+            : "[0-9]+"
+        : t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     )
-      return false;
-    const pattern = tokens
-      .map((t) =>
-        /^\{/.test(t)
-          ? t === "{s}"
-            ? "[a-z0-9-]+"
-            : t === "{r}"
-              ? "(?:@2x)?"
-              : "[0-9]+"
-          : t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      )
-      .join("");
-    return new RegExp("^" + pattern + "$").test(url.href);
-  });
+    .join("");
+  return new RegExp("^" + pattern + "$");
+});
+function matchesTile(url) {
+  return TILE_PATTERNS.some((pattern) => pattern?.test(url.href));
 }
 const offlineClients = new Set();
 const SHELL = VERSION + "-shell";

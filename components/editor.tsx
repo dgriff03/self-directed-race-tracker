@@ -315,8 +315,8 @@ export default function Editor({ token }: { token?: string }) {
                     In your local timezone:{" "}
                     {Intl.DateTimeFormat().resolvedOptions().timeZone}. Leaving
                     early? GPS positions are accepted up to one hour before this
-                    time. The first accepted early position starts the race
-                    clock.
+                    time. Leaving the start area starts the clock, using the
+                    last GPS position within 50 meters of the start.
                   </small>
                 </label>
                 <label>

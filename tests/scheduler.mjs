@@ -21,5 +21,8 @@ const earlyAt=Date.now()-60000;
 xml=`<kml><Placemark><TimeStamp><when>${new Date(earlyAt).toISOString()}</when></TimeStamp><Point><coordinates>0,0</coordinates></Point></Placemark></kml>`;
 await pollGarmin.run({}); assert.equal(calls,5);
 data=(await db.ref(`races/${id}`).get()).val();
-assert.equal(data.status,'live'); assert.equal(data.actualStartAt,earlyAt); assert.equal(data.startAt,windowStart);
+assert.equal(data.status,'scheduled'); assert.equal(data.actualStartAt,undefined); assert.equal(data.startLineFix.at,earlyAt); assert.equal(data.startAt,windowStart);
+xml=`<kml><Placemark><TimeStamp><when>${new Date(earlyAt+30000).toISOString()}</when></TimeStamp><Point><coordinates>0.0006,0</coordinates></Point></Placemark></kml>`;
+await pollGarmin.run({}); data=(await db.ref(`races/${id}`).get()).val();
+assert.equal(data.status,'live'); assert.equal(data.actualStartAt,earlyAt);
 console.log('PASS: scheduled polling claims lease, healthy heartbeat without points, failure heartbeat, splits and automatic finish; completed race is not fetched again.');}finally{globalThis.fetch=original;await db.ref().update({[`races/${id}`]:null,[`jobs/${id}`]:null,[`limits/expiry-${id}`]:null});db.goOffline();}

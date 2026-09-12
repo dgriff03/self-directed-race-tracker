@@ -1,14 +1,15 @@
 import { applyFixes, type Fix, type Race } from "../shared/race";
-// Advancing only applies newly visible fixes. Seeking backwards rebuilds from
-// the original race, so completion and later splits cannot leak into the past.
+// Immutable checkpoints bound backward reconstruction to fewer than 250 fixes.
 export class ReplayEngine {
   private current: Race;
   private count = 0;
+  private snapshots = new Map<number, Race>();
   constructor(
     private initial: Race,
     private points: Fix[],
   ) {
     this.current = initial;
+    this.snapshots.set(0, initial);
   }
   seek(at: number): Race {
     let end = 0,
@@ -18,17 +19,31 @@ export class ReplayEngine {
       if (this.points[mid].at <= at) end = mid + 1;
       else high = mid;
     }
-    if (end < this.count) {
-      this.current = this.initial;
-      this.count = 0;
+    if (
+      end < this.count ||
+      (Math.floor(end / 250) * 250 > this.count &&
+        this.snapshots.has(Math.floor(end / 250) * 250))
+    ) {
+      this.count = Math.floor(end / 250) * 250;
+      this.current = this.snapshots.get(this.count)!;
     }
-    if (end > this.count)
+    while (this.count < end) {
+      const next = Math.min(end, (Math.floor(this.count / 250) + 1) * 250);
       this.current = applyFixes(
         this.current,
-        this.points.slice(this.count, end),
+        this.points.slice(this.count, next),
         at,
       );
-    this.count = end;
+      this.count = next;
+      if (next % 250 === 0) {
+        // The static course is shared; each checkpoint retains independent dynamic state.
+        this.current.route = this.initial.route;
+        this.current.distances = this.initial.distances;
+        if ("elevationsM" in this.initial)
+          this.current.elevationsM = this.initial.elevationsM;
+        this.snapshots.set(next, this.current);
+      }
+    }
     return this.current;
   }
 }
