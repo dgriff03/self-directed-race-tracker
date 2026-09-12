@@ -42,6 +42,7 @@ const time = (t: number) =>
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 export default function Viewer({ id }: { id: string }) {
   const demo = id === "demo";
@@ -274,7 +275,7 @@ export default function Viewer({ id }: { id: string }) {
       )}
       {scheduled && (
         <div className="notice">
-          Event starting at {new Date(race.startAt).toLocaleString()}. Tracking
+          Event starting at {new Date(race.startAt).toLocaleString([], { timeZoneName: "short" })}. Tracking
           can begin automatically up to one hour early.
         </div>
       )}
@@ -434,7 +435,7 @@ export default function Viewer({ id }: { id: string }) {
             <p>
               Last updated at{" "}
               {race.fix
-                ? new Date(race.fix.at).toLocaleString()
+                ? new Date(race.fix.at).toLocaleString([], { timeZoneName: "short" })
                 : "— awaiting first GPS position"}
             </p>
           </div>
