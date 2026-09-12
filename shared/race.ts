@@ -17,6 +17,7 @@ export type Race = {
   id: string;
   name: string;
   startAt: number;
+  actualStartAt?: number;
   route: Coordinate[];
   distances: number[];
   elevationsM?: number[] | null;
@@ -112,7 +113,7 @@ export function project(
 }
 export function speed(r: Race) {
   if (!r.fix) return 0;
-  const elapsed = (r.fix.at - r.startAt) / 3600000;
+  const elapsed = (r.fix.at - raceStart(r)) / 3600000;
   return elapsed > 0 ? Math.min(25, completedDistance(r) / elapsed) : 0;
 }
 export function paceEstimate(
@@ -272,6 +273,9 @@ export function calculateEta(
   }
 }
 
+export const EARLY_START_MS = 3600000;
+export const raceStart = (r: Race) => r.actualStartAt ?? r.startAt;
+
 export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   let out = structuredClone(r);
   out.stations = stationVisits(out.stations, out.distances, out.outAndBack);
@@ -283,12 +287,13 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       continue;
     }
     if (
-      fix.at < out.startAt ||
+      fix.at < out.startAt - EARLY_START_MS ||
       fix.at > now + 120000 ||
       fix.at <= Math.max(out.fix?.at ?? 0, out.pendingFix?.at ?? 0)
     )
       continue;
-    const hours = (fix.at - (out.fix?.at ?? out.startAt)) / 3600000;
+    const hours =
+      (fix.at - (out.fix?.at ?? Math.min(fix.at, raceStart(out)))) / 3600000;
     const match = project(
       out.route,
       out.distances,
@@ -340,6 +345,8 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       (pending.km ?? 0) <= km
         ? pending
         : null;
+    if (!out.fix && fix.at < out.startAt)
+      out.actualStartAt = confirmedPending?.at ?? fix.at;
     for (const station of out.stations) {
       if (
         station.km <= km &&
@@ -350,7 +357,7 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
         const oldKm = afterPending ? confirmedPending.km! : out.progressKm;
         const oldAt = afterPending
           ? confirmedPending.at
-          : (previous?.at ?? out.startAt);
+          : (previous?.at ?? raceStart(out));
         const endKm =
           confirmedPending && !afterPending ? confirmedPending.km! : km;
         const endAt =
@@ -556,7 +563,11 @@ function applyOutAndBackFix(
   now: number,
   confirmedKm?: number,
 ) {
-  if (fix.at < r.startAt || fix.at > now + 120000 || fix.at <= (r.fix?.at ?? 0))
+  if (
+    fix.at < r.startAt - EARLY_START_MS ||
+    fix.at > now + 120000 ||
+    fix.at <= (r.fix?.at ?? 0)
+  )
     return;
   const total = r.distances.at(-1)!,
     half = total / 2;
@@ -570,7 +581,8 @@ function applyOutAndBackFix(
     reverseCount: 0,
     reverseAt: 0,
   };
-  const hours = (fix.at - (previous?.at ?? r.startAt)) / 3600000;
+  const hours =
+    (fix.at - (previous?.at ?? Math.min(fix.at, raceStart(r)))) / 3600000;
   const reach = Math.max(0.15, hours * 25);
   const match = project(
     r.route,
@@ -625,6 +637,7 @@ function applyOutAndBackFix(
     if (r.status !== "complete") applyOutAndBackFix(r, fix, now, km);
     return;
   }
+  if (!r.fix && fix.at < r.startAt) r.actualStartAt = fix.at;
   const wasReturning = j.phase === "returning";
   if (j.phase === "outbound") {
     if (km > j.peakKm) {
@@ -670,7 +683,7 @@ function applyOutAndBackFix(
   const fromAt =
     !wasReturning && j.phase === "returning"
       ? j.peakAt
-      : (previous?.at ?? r.startAt);
+      : (previous?.at ?? Math.min(fix.at, raceStart(r)));
   for (const station of r.stations) {
     if (
       station.id === "finish" ||

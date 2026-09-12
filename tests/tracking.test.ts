@@ -408,137 +408,502 @@ test("confirmed switchback motion applies each following fix and preserves pendi
 });
 
 test("replay seeks forward and backward without leaking future splits, including future-dated recordings", async () => {
-  const { ReplayEngine } = await import('../lib/replay');
+  const { ReplayEngine } = await import("../lib/replay");
   const r = race();
   r.startAt = Date.UTC(2040, 0, 1);
   const points = [
     { lng: 0, lat: 0, at: r.startAt },
-    { lng: .01, lat: 0, at: r.startAt + 1800000 },
-    { lng: .02, lat: 0, at: r.startAt + 3500000 },
+    { lng: 0.01, lat: 0, at: r.startAt + 1800000 },
+    { lng: 0.02, lat: 0, at: r.startAt + 3500000 },
   ];
   const engine = new ReplayEngine(r, points);
-  assert.equal(engine.seek(r.startAt-1).fix, null);
+  assert.equal(engine.seek(r.startAt - 1).fix, null);
   const middle = engine.seek(points[1].at);
   assert.equal(middle.splits.length, 1);
   const finish = engine.seek(points[2].at);
-  assert.equal(finish.status, 'complete');
+  assert.equal(finish.status, "complete");
   assert.equal(finish.splits.length, 2);
   assert.deepEqual(engine.seek(points[1].at), middle);
-  assert.equal(engine.seek(r.startAt-1).splits.length, 0);
+  assert.equal(engine.seek(r.startAt - 1).splits.length, 0);
   assert.deepEqual(engine.seek(points[2].at), finish);
   assert.equal(r.splits.length, 0);
 });
 
-test('out-and-back detects sustained early return without fabricating summit splits or mileage', async()=>{
-  const {validOutAndBack, completedDistance, plannedDistance, stationSkipped, journeyElevation, setJourneyDirection}=await import('../shared/race');
-  const {ReplayEngine}=await import('../lib/replay');
-  const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.05,0],[.1,0],[.05,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.elevationsM=[1000,1500,2000,1500,1000];
-  const total=r.distances.at(-1)!;
-  r.stations=[{id:'aid',name:'Outward aid',km:.8},{id:'summit',name:'Summit',km:total/2},{id:'return-aid',name:'Return aid',km:total-.8},{id:'finish',name:'Finish',km:total}];
-  assert.equal(validOutAndBack(r.route),true);assert.equal(validOutAndBack([[0,0],[.1,0],[.05,.05],[0,0]]),false);
-  const points=[0,.005,.01,.015,.02,.025,.03,.025,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
-  const engine=new ReplayEngine(r,points);
-  const suspect=engine.seek(points[8].at);assert.equal(suspect.journey?.phase,'outbound');assert.equal(suspect.splits.length,1);
-  const returning=engine.seek(points[9].at);assert.equal(returning.journey?.phase,'returning');assert.equal(stationSkipped(returning,'summit'),true);assert.equal(calculateEta(returning,total/2,'summit',points[9].at),null);
-  assert.ok(plannedDistance(returning)<total/2);assert.ok(completedDistance(returning)<plannedDistance(returning));
-  assert.ok(journeyElevation(returning)!.totalM<400);
-  const eta=calculateEta(returning,total,'finish',points[9].at);assert.ok(eta && eta>points[9].at);
-  const withReturnPace=engine.seek(points[10].at);assert.equal(paceEstimate(withReturnPace).source,'rolling');assert.ok(paceEstimate(withReturnPace).kmh<5);
-  const backtrack=applyFixes(withReturnPace,[{lng:.015,lat:0,at:points[11].at}],points[11].at);assert.ok(backtrack.progressKm<withReturnPace.progressKm);assert.equal(backtrack.splits.length,withReturnPace.splits.length);
-  const finished=engine.seek(points[12].at);assert.equal(finished.status,'complete');assert.equal(finished.splits.some(s=>s.stationId==='summit'),false);assert.equal(finished.splits.some(s=>s.stationId==='return-aid'),true);assert.equal(completedDistance(finished),plannedDistance(finished));
-  assert.equal(engine.seek(points[6].at).journey?.phase,'outbound');assert.deepEqual(engine.seek(points[12].at),finished);
-  const corrected=setJourneyDirection(returning,'outbound');assert.equal(corrected.journey?.phase,'outbound');assert.equal(stationSkipped(corrected,'summit'),false);assert.equal(applyFixes(corrected,[points[10]],points[10].at).journey?.phase,'outbound');
-  const manual=setJourneyDirection(suspect,'returning');assert.equal(manual.journey?.phase,'returning');assert.ok(plannedDistance(manual)<total);
+test("out-and-back detects sustained early return without fabricating summit splits or mileage", async () => {
+  const {
+    validOutAndBack,
+    completedDistance,
+    plannedDistance,
+    stationSkipped,
+    journeyElevation,
+    setJourneyDirection,
+  } = await import("../shared/race");
+  const { ReplayEngine } = await import("../lib/replay");
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  r.route = [
+    [0, 0],
+    [0.05, 0],
+    [0.1, 0],
+    [0.05, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  r.elevationsM = [1000, 1500, 2000, 1500, 1000];
+  const total = r.distances.at(-1)!;
+  r.stations = [
+    { id: "aid", name: "Outward aid", km: 0.8 },
+    { id: "summit", name: "Summit", km: total / 2 },
+    { id: "return-aid", name: "Return aid", km: total - 0.8 },
+    { id: "finish", name: "Finish", km: total },
+  ];
+  assert.equal(validOutAndBack(r.route), true);
+  assert.equal(
+    validOutAndBack([
+      [0, 0],
+      [0.1, 0],
+      [0.05, 0.05],
+      [0, 0],
+    ]),
+    false,
+  );
+  const points = [
+    0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.025, 0.02, 0.015, 0.01, 0.005,
+    0,
+  ].map((lng, i) => ({ lng, lat: 0, at: r.startAt + i * 600000 }));
+  const engine = new ReplayEngine(r, points);
+  const suspect = engine.seek(points[8].at);
+  assert.equal(suspect.journey?.phase, "outbound");
+  assert.equal(suspect.splits.length, 1);
+  const returning = engine.seek(points[9].at);
+  assert.equal(returning.journey?.phase, "returning");
+  assert.equal(stationSkipped(returning, "summit"), true);
+  assert.equal(
+    calculateEta(returning, total / 2, "summit", points[9].at),
+    null,
+  );
+  assert.ok(plannedDistance(returning) < total / 2);
+  assert.ok(completedDistance(returning) < plannedDistance(returning));
+  assert.ok(journeyElevation(returning)!.totalM < 400);
+  const eta = calculateEta(returning, total, "finish", points[9].at);
+  assert.ok(eta && eta > points[9].at);
+  const withReturnPace = engine.seek(points[10].at);
+  assert.equal(paceEstimate(withReturnPace).source, "rolling");
+  assert.ok(paceEstimate(withReturnPace).kmh < 5);
+  const backtrack = applyFixes(
+    withReturnPace,
+    [{ lng: 0.015, lat: 0, at: points[11].at }],
+    points[11].at,
+  );
+  assert.ok(backtrack.progressKm < withReturnPace.progressKm);
+  assert.equal(backtrack.splits.length, withReturnPace.splits.length);
+  const finished = engine.seek(points[12].at);
+  assert.equal(finished.status, "complete");
+  assert.equal(
+    finished.splits.some((s) => s.stationId === "summit"),
+    false,
+  );
+  assert.equal(
+    finished.splits.some((s) => s.stationId === "return-aid"),
+    true,
+  );
+  assert.equal(completedDistance(finished), plannedDistance(finished));
+  assert.equal(engine.seek(points[6].at).journey?.phase, "outbound");
+  assert.deepEqual(engine.seek(points[12].at), finished);
+  const corrected = setJourneyDirection(returning, "outbound");
+  assert.equal(corrected.journey?.phase, "outbound");
+  assert.equal(stationSkipped(corrected, "summit"), false);
+  assert.equal(
+    applyFixes(corrected, [points[10]], points[10].at).journey?.phase,
+    "outbound",
+  );
+  const manual = setJourneyDirection(suspect, "returning");
+  assert.equal(manual.journey?.phase, "returning");
+  assert.ok(plannedDistance(manual) < total);
 });
 
-test('out-and-back ignores a brief reversal and off-route GPS, and supports the planned turnaround', async()=>{
-  const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.stations=[{id:'summit',name:'Summit',km:r.distances.at(-1)!/2},{id:'finish',name:'Finish',km:r.distances.at(-1)!}];
-  const points=[0,.005,.01,.009,.015,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
-  const outbound=applyFixes(r,points.slice(0,5),points[4].at);assert.equal(outbound.journey?.phase,'outbound');
-  const off=applyFixes(outbound,[{lng:.015,lat:.1,at:points[4].at+60000}],points[5].at);assert.equal(off.fix?.at,outbound.fix?.at);
-  const result=applyFixes(outbound,points.slice(5),points.at(-1)!.at);assert.equal(result.status,'complete');assert.ok(result.splits.some(s=>s.stationId==='summit'));
+test("out-and-back ignores a brief reversal and off-route GPS, and supports the planned turnaround", async () => {
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  r.stations = [
+    { id: "summit", name: "Summit", km: r.distances.at(-1)! / 2 },
+    { id: "finish", name: "Finish", km: r.distances.at(-1)! },
+  ];
+  const points = [
+    0, 0.005, 0.01, 0.009, 0.015, 0.02, 0.015, 0.01, 0.005, 0,
+  ].map((lng, i) => ({ lng, lat: 0, at: r.startAt + i * 600000 }));
+  const outbound = applyFixes(r, points.slice(0, 5), points[4].at);
+  assert.equal(outbound.journey?.phase, "outbound");
+  const off = applyFixes(
+    outbound,
+    [{ lng: 0.015, lat: 0.1, at: points[4].at + 60000 }],
+    points[5].at,
+  );
+  assert.equal(off.fix?.at, outbound.fix?.at);
+  const result = applyFixes(outbound, points.slice(5), points.at(-1)!.at);
+  assert.equal(result.status, "complete");
+  assert.ok(result.splits.some((s) => s.stationId === "summit"));
 });
 
-test('race creation bypasses Hosting even when apiBase is /api; edit and emulator routes stay configured', async()=>{
-  const {apiBase}=await import('../lib/api-url');
-  const c={projectId:'self-directed-tracker-type-two',apiBase:'/api'};
-  assert.equal(apiBase('/races',c),'https://us-central1-self-directed-tracker-type-two.cloudfunctions.net/api');
-  assert.equal(apiBase('/edit',c),'/api');assert.equal(apiBase('/races',{...c,emulator:true}),'/api');
-  assert.notEqual(requestIp('203.0.113.1'),requestIp('203.0.113.2'));
+test("race creation bypasses Hosting even when apiBase is /api; edit and emulator routes stay configured", async () => {
+  const { apiBase } = await import("../lib/api-url");
+  const c = { projectId: "self-directed-tracker-type-two", apiBase: "/api" };
+  assert.equal(
+    apiBase("/races", c),
+    "https://us-central1-self-directed-tracker-type-two.cloudfunctions.net/api",
+  );
+  assert.equal(apiBase("/edit", c), "/api");
+  assert.equal(apiBase("/races", { ...c, emulator: true }), "/api");
+  assert.notEqual(requestIp("203.0.113.1"), requestIp("203.0.113.2"));
 });
-test('replay preserves state identity between fixes and accepts a day of five-second samples', async()=>{
-  const {ReplayEngine}=await import('../lib/replay');const r=race();
-  const points=Array.from({length:17280},(_,i)=>({lng:0,lat:0,at:r.startAt+i*5000}));
-  const engine=new ReplayEngine(r,points);const first=engine.seek(r.startAt);
-  for(let i=1;i<50;i++)assert.equal(engine.seek(r.startAt+i*100),first);
-  assert.equal(engine.seek(points.at(-1)!.at).fix?.at,points.at(-1)!.at);
+test("replay preserves state identity between fixes and accepts a day of five-second samples", async () => {
+  const { ReplayEngine } = await import("../lib/replay");
+  const r = race();
+  const points = Array.from({ length: 17280 }, (_, i) => ({
+    lng: 0,
+    lat: 0,
+    at: r.startAt + i * 5000,
+  }));
+  const engine = new ReplayEngine(r, points);
+  const first = engine.seek(r.startAt);
+  for (let i = 1; i < 50; i++)
+    assert.equal(engine.seek(r.startAt + i * 100), first);
+  assert.equal(engine.seek(points.at(-1)!.at).fix?.at, points.at(-1)!.at);
 });
-test('rolling ETA retains downstream and current stop allowances while dwelling',()=>{
-  const r=race();r.stations=[{id:'aid',name:'Aid',km:1},{id:'later',name:'Later',km:2},{id:'finish',name:'Finish',km:3}];
-  r.progressKm=1;r.fix={lng:0,lat:0,at:r.startAt+600000,km:1};
-  const pace={kmh:6,source:'rolling' as const};const at=r.fix.at;
-  const before=calculateEta({...r,progressKm:.999},3,'finish',at,{pace,dwell:{atStation:false,dwellMs:0}})!;
-  r.splits=[{stationId:'aid',at,estimated:true}];
-  const arrived=calculateEta(r,3,'finish',at,{pace,dwell:{atStation:true,dwellMs:0,arrivalAt:at,station:r.stations[0]}})!;
-  assert.ok(Math.abs(before-arrived)<1000);
-  const dwelling=calculateEta(r,3,'finish',at+240000,{pace,dwell:{atStation:true,dwellMs:240000,arrivalAt:at,station:r.stations[0]}})!;
-  assert.equal(dwelling,arrived);
+test("rolling ETA retains downstream and current stop allowances while dwelling", () => {
+  const r = race();
+  r.stations = [
+    { id: "aid", name: "Aid", km: 1 },
+    { id: "later", name: "Later", km: 2 },
+    { id: "finish", name: "Finish", km: 3 },
+  ];
+  r.progressKm = 1;
+  r.fix = { lng: 0, lat: 0, at: r.startAt + 600000, km: 1 };
+  const pace = { kmh: 6, source: "rolling" as const };
+  const at = r.fix.at;
+  const before = calculateEta({ ...r, progressKm: 0.999 }, 3, "finish", at, {
+    pace,
+    dwell: { atStation: false, dwellMs: 0 },
+  })!;
+  r.splits = [{ stationId: "aid", at, estimated: true }];
+  const arrived = calculateEta(r, 3, "finish", at, {
+    pace,
+    dwell: {
+      atStation: true,
+      dwellMs: 0,
+      arrivalAt: at,
+      station: r.stations[0],
+    },
+  })!;
+  assert.ok(Math.abs(before - arrived) < 1000);
+  const dwelling = calculateEta(r, 3, "finish", at + 240000, {
+    pace,
+    dwell: {
+      atStation: true,
+      dwellMs: 240000,
+      arrivalAt: at,
+      station: r.stations[0],
+    },
+  })!;
+  assert.equal(dwelling, arrived);
 });
-test('out-and-back tolerates small route deviations but rejects distinct return trails',async()=>{
-  const {validOutAndBack}=await import('../shared/race');
-  assert.equal(validOutAndBack([[0,0],[.05,0],[.1,0],[.05,.001],[0,0]]),true);
-  assert.equal(validOutAndBack([[0,0],[.05,0],[.1,0],[.05,.01],[0,0]]),false);
+test("out-and-back tolerates small route deviations but rejects distinct return trails", async () => {
+  const { validOutAndBack } = await import("../shared/race");
+  assert.equal(
+    validOutAndBack([
+      [0, 0],
+      [0.05, 0],
+      [0.1, 0],
+      [0.05, 0.001],
+      [0, 0],
+    ]),
+    true,
+  );
+  assert.equal(
+    validOutAndBack([
+      [0, 0],
+      [0.05, 0],
+      [0.1, 0],
+      [0.05, 0.01],
+      [0, 0],
+    ]),
+    false,
+  );
 });
-test('out-and-back switchbacks corroborate pending fixes, preserve split times and continue accepting movement',()=>{
- const r=race();const outward:[number,number][]=[[0,0],[.02,0],[.02,.0005],[0,.0005]];
- r.route=[...outward,...outward.slice(0,-1).reverse()];r.distances=cumulative(r.route);r.outAndBack=true;
- r.stations=[{id:'aid',name:'Aid',km:1.5}];r.progressKm=.3;r.fix={lng:.003,lat:0,at:r.startAt+100000,km:.3,outboundKm:.3};
- r.journey={phase:'outbound',peakKm:.3,peakAt:r.fix.at,positionKm:.3,reverseCount:0,reverseAt:0};
- const p={lng:.004,lat:.0005,at:r.startAt+1800000};const pending=applyFixes(r,[p]);assert.ok(pending.pendingFix);assert.equal(pending.splits.length,0);
- const recovered=applyFixes(pending,[{lng:.005,lat:0,at:r.startAt+2400000}]);assert.equal(recovered.splits.length,0);
- let current=applyFixes(pending,[{lng:.003,lat:.0005,at:r.startAt+2400000}]);assert.equal(current.previousFix?.at,p.at);assert.ok(current.splits[0].at<p.at);
- for(const [lng,at] of [[.002,r.startAt+3000000],[.001,r.startAt+3500000]]){current=applyFixes(current,[{lng,lat:.0005,at}]);assert.equal(current.fix?.at,at);assert.equal(current.pendingFix,null);}
- current=setJourneyDirection(current,'returning');const back={lng:.002,lat:.0005,at:r.startAt+4000000};current=applyFixes(current,[back],r.startAt+6000000);assert.equal(current.fix?.at,back.at);current=applyFixes(current,[{lng:.003,lat:.0005,at:r.startAt+4600000}],r.startAt+6000000);assert.equal(current.previousFix?.at,back.at);current=applyFixes(current,[{lng:.004,lat:.0005,at:r.startAt+5200000}],r.startAt+6000000);assert.equal(current.fix?.at,r.startAt+5200000);assert.equal(current.pendingFix,null);
+test("out-and-back switchbacks corroborate pending fixes, preserve split times and continue accepting movement", () => {
+  const r = race();
+  const outward: [number, number][] = [
+    [0, 0],
+    [0.02, 0],
+    [0.02, 0.0005],
+    [0, 0.0005],
+  ];
+  r.route = [...outward, ...outward.slice(0, -1).reverse()];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  r.stations = [{ id: "aid", name: "Aid", km: 1.5 }];
+  r.progressKm = 0.3;
+  r.fix = {
+    lng: 0.003,
+    lat: 0,
+    at: r.startAt + 100000,
+    km: 0.3,
+    outboundKm: 0.3,
+  };
+  r.journey = {
+    phase: "outbound",
+    peakKm: 0.3,
+    peakAt: r.fix.at,
+    positionKm: 0.3,
+    reverseCount: 0,
+    reverseAt: 0,
+  };
+  const p = { lng: 0.004, lat: 0.0005, at: r.startAt + 1800000 };
+  const pending = applyFixes(r, [p]);
+  assert.ok(pending.pendingFix);
+  assert.equal(pending.splits.length, 0);
+  const recovered = applyFixes(pending, [
+    { lng: 0.005, lat: 0, at: r.startAt + 2400000 },
+  ]);
+  assert.equal(recovered.splits.length, 0);
+  let current = applyFixes(pending, [
+    { lng: 0.003, lat: 0.0005, at: r.startAt + 2400000 },
+  ]);
+  assert.equal(current.previousFix?.at, p.at);
+  assert.ok(current.splits[0].at < p.at);
+  for (const [lng, at] of [
+    [0.002, r.startAt + 3000000],
+    [0.001, r.startAt + 3500000],
+  ]) {
+    current = applyFixes(current, [{ lng, lat: 0.0005, at }]);
+    assert.equal(current.fix?.at, at);
+    assert.equal(current.pendingFix, null);
+  }
+  current = setJourneyDirection(current, "returning");
+  const back = { lng: 0.002, lat: 0.0005, at: r.startAt + 4000000 };
+  current = applyFixes(current, [back], r.startAt + 6000000);
+  assert.equal(current.fix?.at, back.at);
+  current = applyFixes(
+    current,
+    [{ lng: 0.003, lat: 0.0005, at: r.startAt + 4600000 }],
+    r.startAt + 6000000,
+  );
+  assert.equal(current.previousFix?.at, back.at);
+  current = applyFixes(
+    current,
+    [{ lng: 0.004, lat: 0.0005, at: r.startAt + 5200000 }],
+    r.startAt + 6000000,
+  );
+  assert.equal(current.fix?.at, r.startAt + 5200000);
+  assert.equal(current.pendingFix, null);
 });
 
-test('a 200m retreat and lingering do not trigger early return; a new peak resets evidence',()=>{
- const r=race();r.startAt=Date.UTC(2040,0,1);r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;r.stations=[];
- const points=[0,.01,.0094,.0088,.0082,.0082,.0101].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
- const retreat=applyFixes(r,points.slice(0,6),points[5].at);assert.equal(retreat.journey?.phase,'outbound');
- const advanced=applyFixes(retreat,[points[6]],points[6].at);assert.equal(advanced.journey?.reverseCount,0);assert.equal(advanced.journey?.reverseAt,0);
+test("a 200m retreat and lingering do not trigger early return; a new peak resets evidence", () => {
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  r.stations = [];
+  const points = [0, 0.01, 0.0094, 0.0088, 0.0082, 0.0082, 0.0101].map(
+    (lng, i) => ({ lng, lat: 0, at: r.startAt + i * 600000 }),
+  );
+  const retreat = applyFixes(r, points.slice(0, 6), points[5].at);
+  assert.equal(retreat.journey?.phase, "outbound");
+  const advanced = applyFixes(retreat, [points[6]], points[6].at);
+  assert.equal(advanced.journey?.reverseCount, 0);
+  assert.equal(advanced.journey?.reverseAt, 0);
 });
-test('manual turnaround retains movement evidence so it cannot manufacture dwell',()=>{
- const r=race();r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);r.outAndBack=true;const total=r.distances.at(-1)!;
- r.progressKm=.8;const at=r.startAt+3600000;const point=atDistance(r.route,r.distances,.8),prev=atDistance(r.route,r.distances,.6);
- r.fix={lng:point[0],lat:point[1],at,km:.8,outboundKm:.8};r.previousFix={lng:prev[0],lat:prev[1],at:at-600000,km:.6,outboundKm:.6};
- r.journey={phase:'outbound',positionKm:.8,peakKm:.8,peakAt:at,reverseAt:0,reverseCount:0};r.stations=[{id:'return-aid',name:'Return aid',km:total-.8}];r.splits=[{stationId:'return-aid',at:r.startAt,estimated:true}];
- const turned=setJourneyDirection(r,'returning');assert.equal(turned.previousFix?.at,r.previousFix.at);assert.equal(stationDwellStatus(turned,at).atStation,false);
+test("manual turnaround retains movement evidence so it cannot manufacture dwell", () => {
+  const r = race();
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  const total = r.distances.at(-1)!;
+  r.progressKm = 0.8;
+  const at = r.startAt + 3600000;
+  const point = atDistance(r.route, r.distances, 0.8),
+    prev = atDistance(r.route, r.distances, 0.6);
+  r.fix = { lng: point[0], lat: point[1], at, km: 0.8, outboundKm: 0.8 };
+  r.previousFix = {
+    lng: prev[0],
+    lat: prev[1],
+    at: at - 600000,
+    km: 0.6,
+    outboundKm: 0.6,
+  };
+  r.journey = {
+    phase: "outbound",
+    positionKm: 0.8,
+    peakKm: 0.8,
+    peakAt: at,
+    reverseAt: 0,
+    reverseCount: 0,
+  };
+  r.stations = [{ id: "return-aid", name: "Return aid", km: total - 0.8 }];
+  r.splits = [{ stationId: "return-aid", at: r.startAt, estimated: true }];
+  const turned = setJourneyDirection(r, "returning");
+  assert.equal(turned.previousFix?.at, r.previousFix.at);
+  assert.equal(stationDwellStatus(turned, at).atStation, false);
 });
 
-test('out-and-back visits mirror outbound aids once, keep the summit single and respect manual return entries',async()=>{
- const {stationVisits}=await import('../shared/race');
- const stations=[{id:'a',name:'Lower aid',km:3},{id:'b',name:'Upper aid',km:7},{id:'summit',name:'Summit',km:9.92},{id:'finish',name:'Finish',km:20}];
- const visits=stationVisits(stations,[0,10,20],true);
- assert.deepEqual(visits.map(s=>s.id),['a','b','summit','return-b','return-a','finish']);
- assert.equal(visits.find(s=>s.id==='return-b')?.km,13);
- assert.deepEqual(stationVisits(visits,[0,10,20],true),visits);
- assert.deepEqual(stationVisits(stations,[0,10,20],false),stations);
- assert.equal(stationVisits([...stations,{id:'custom-return',name:'Lower aid return',km:17}],[0,10,20],true).some(s=>s.id==='return-a'),false);
+test("out-and-back visits mirror outbound aids once, keep the summit single and respect manual return entries", async () => {
+  const { stationVisits } = await import("../shared/race");
+  const stations = [
+    { id: "a", name: "Lower aid", km: 3 },
+    { id: "b", name: "Upper aid", km: 7 },
+    { id: "summit", name: "Summit", km: 9.92 },
+    { id: "finish", name: "Finish", km: 20 },
+  ];
+  const visits = stationVisits(stations, [0, 10, 20], true);
+  assert.deepEqual(
+    visits.map((s) => s.id),
+    ["a", "b", "summit", "return-b", "return-a", "finish"],
+  );
+  assert.equal(visits.find((s) => s.id === "return-b")?.km, 13);
+  assert.deepEqual(stationVisits(visits, [0, 10, 20], true), visits);
+  assert.deepEqual(stationVisits(stations, [0, 10, 20], false), stations);
+  assert.equal(
+    stationVisits(
+      [...stations, { id: "custom-return", name: "Lower aid return", km: 17 }],
+      [0, 10, 20],
+      true,
+    ).some((s) => s.id === "return-a"),
+    false,
+  );
 });
-test('generated return visits have independent splits and disappear on backward replay',async()=>{
- const {ReplayEngine}=await import('../lib/replay');
- const r=race();r.startAt=Date.UTC(2040,0,1);r.outAndBack=true;r.route=[[0,0],[.02,0],[0,0]];r.distances=cumulative(r.route);const total=r.distances.at(-1)!;
- r.stations=[{id:'a',name:'Aid',km:.8},{id:'summit',name:'Summit',km:total/2},{id:'finish',name:'Finish',km:total}];
- const points=[0,.005,.01,.015,.02,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
- const engine=new ReplayEngine(r,points),complete=engine.seek(points.at(-1)!.at);
- assert.equal(complete.status,'complete');assert.deepEqual(complete.splits.map(s=>s.stationId),['a','summit','return-a','finish']);
- assert.ok(complete.splits.find(s=>s.stationId==='return-a')!.at>complete.splits.find(s=>s.stationId==='summit')!.at);
- const outbound=engine.seek(points[3].at);assert.equal(outbound.splits.some(s=>s.stationId==='return-a'),false);assert.ok(calculateEta(outbound,total-.8,'return-a',points[3].at));
+test("generated return visits have independent splits and disappear on backward replay", async () => {
+  const { ReplayEngine } = await import("../lib/replay");
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  r.outAndBack = true;
+  r.route = [
+    [0, 0],
+    [0.02, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  const total = r.distances.at(-1)!;
+  r.stations = [
+    { id: "a", name: "Aid", km: 0.8 },
+    { id: "summit", name: "Summit", km: total / 2 },
+    { id: "finish", name: "Finish", km: total },
+  ];
+  const points = [0, 0.005, 0.01, 0.015, 0.02, 0.015, 0.01, 0.005, 0].map(
+    (lng, i) => ({ lng, lat: 0, at: r.startAt + i * 600000 }),
+  );
+  const engine = new ReplayEngine(r, points),
+    complete = engine.seek(points.at(-1)!.at);
+  assert.equal(complete.status, "complete");
+  assert.deepEqual(
+    complete.splits.map((s) => s.stationId),
+    ["a", "summit", "return-a", "finish"],
+  );
+  assert.ok(
+    complete.splits.find((s) => s.stationId === "return-a")!.at >
+      complete.splits.find((s) => s.stationId === "summit")!.at,
+  );
+  const outbound = engine.seek(points[3].at);
+  assert.equal(
+    outbound.splits.some((s) => s.stationId === "return-a"),
+    false,
+  );
+  assert.ok(calculateEta(outbound, total - 0.8, "return-a", points[3].at));
 });
 
-test('early return skips both visits above the turnaround but records the generated lower return visit',async()=>{
- const {stationSkipped}=await import('../shared/race');const r=race();r.startAt=Date.UTC(2040,0,1);r.outAndBack=true;r.route=[[0,0],[.04,0],[0,0]];r.distances=cumulative(r.route);const total=r.distances.at(-1)!;
- r.stations=[{id:'low',name:'Lower',km:.5},{id:'high',name:'Upper',km:3},{id:'summit',name:'Summit',km:total/2},{id:'finish',name:'Finish',km:total}];
- const points=[0,.005,.01,.015,.01,.005,0].map((lng,i)=>({lng,lat:0,at:r.startAt+i*600000}));
- const result=applyFixes(r,points,points.at(-1)!.at);assert.equal(result.status,'complete');assert.deepEqual(result.splits.map(s=>s.stationId),['low','return-low','finish']);assert.equal(stationSkipped(result,'high'),true);assert.equal(stationSkipped(result,'return-high'),true);
+test("early return skips both visits above the turnaround but records the generated lower return visit", async () => {
+  const { stationSkipped } = await import("../shared/race");
+  const r = race();
+  r.startAt = Date.UTC(2040, 0, 1);
+  r.outAndBack = true;
+  r.route = [
+    [0, 0],
+    [0.04, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  const total = r.distances.at(-1)!;
+  r.stations = [
+    { id: "low", name: "Lower", km: 0.5 },
+    { id: "high", name: "Upper", km: 3 },
+    { id: "summit", name: "Summit", km: total / 2 },
+    { id: "finish", name: "Finish", km: total },
+  ];
+  const points = [0, 0.005, 0.01, 0.015, 0.01, 0.005, 0].map((lng, i) => ({
+    lng,
+    lat: 0,
+    at: r.startAt + i * 600000,
+  }));
+  const result = applyFixes(r, points, points.at(-1)!.at);
+  assert.equal(result.status, "complete");
+  assert.deepEqual(
+    result.splits.map((s) => s.stationId),
+    ["low", "return-low", "finish"],
+  );
+  assert.equal(stationSkipped(result, "high"), true);
+  assert.equal(stationSkipped(result, "return-high"), true);
+});
+
+test("early start window accepts boundary fixes and uses actual time in both modes", () => {
+  for (const outAndBack of [false, true]) {
+    const r = race();
+    r.status = "scheduled";
+    r.outAndBack = outAndBack;
+    if (outAndBack) {
+      r.route = [
+        [0, 0],
+        [0.01, 0],
+        [0.02, 0],
+        [0.01, 0],
+        [0, 0],
+      ];
+      r.distances = cumulative(r.route);
+    }
+    const early = r.startAt - 3600000;
+    const ignored = applyFixes(
+      r,
+      [{ lng: 0, lat: 0, at: early - 1 }],
+      r.startAt,
+    );
+    assert.equal(ignored.fix, null);
+    assert.equal(ignored.actualStartAt, undefined);
+    const started = applyFixes(r, [{ lng: 0, lat: 0, at: early }], r.startAt);
+    assert.equal(started.actualStartAt, early);
+    assert.equal(started.startAt, r.startAt);
+    assert.equal(started.status, "live");
+    const moved = applyFixes(
+      started,
+      [{ lng: 0.009, lat: 0, at: early + 1800000 }],
+      r.startAt,
+    );
+    assert.equal(moved.actualStartAt, early);
+    assert.ok(speed(moved) > 1 && speed(moved) < 3);
+    assert.ok(
+      moved.splits.every((s) => s.at >= early && s.at <= early + 1800000),
+    );
+    const offRoute = applyFixes(r, [{ lng: 1, lat: 1, at: early }], r.startAt);
+    assert.equal(offRoute.actualStartAt, undefined);
+    const late = applyFixes(
+      r,
+      [{ lng: 0, lat: 0, at: r.startAt + 600000 }],
+      r.startAt + 600000,
+    );
+    assert.equal(late.actualStartAt, undefined);
+  }
 });

@@ -18,6 +18,7 @@ import { subscribe, normalize } from "../lib/firebase";
 import { demoRace } from "../lib/demo";
 import {
   completedDistance,
+  raceStart,
   plannedDistance,
   journeyElevation,
   journeyMessage,
@@ -206,7 +207,7 @@ export default function Viewer({ id }: { id: string }) {
     );
   const vert = journeyElevation(race);
   const complete = race.status === "complete",
-    scheduled = !complete && now < race.startAt;
+    scheduled = !complete && !race.fix && now < race.startAt;
   const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 750000);
   const healthy = connected && online && !stale && race.feedOk === true;
   const effectiveMoveSpeed = rolling > 0 ? rolling : overallSpeed;
@@ -274,7 +275,7 @@ export default function Viewer({ id }: { id: string }) {
       {scheduled && (
         <div className="notice">
           Event starting at {new Date(race.startAt).toLocaleString()}. Tracking
-          will begin automatically.
+          can begin automatically up to one hour early.
         </div>
       )}
       {!online && (
@@ -336,7 +337,7 @@ export default function Viewer({ id }: { id: string }) {
           <span>{complete ? "TOTAL TIME" : "ELAPSED TIME"}</span>
           <strong>
             {elapsed(
-              (complete ? (race.finishedAt ?? now) : now) - race.startAt,
+              (complete ? (race.finishedAt ?? now) : now) - raceStart(race),
             )}
           </strong>
           <p>
@@ -344,7 +345,7 @@ export default function Viewer({ id }: { id: string }) {
               ? "Waiting for the start"
               : complete
                 ? "Race archived"
-                : "Since the scheduled start"}
+                : "Since the start"}
           </p>
         </div>
         <div>
@@ -454,7 +455,7 @@ export default function Viewer({ id }: { id: string }) {
                 <p>0.0 mi</p>
               </div>
               <div className="station-time">
-                <strong>{time(race.startAt)}</strong>
+                <strong>{time(raceStart(race))}</strong>
                 <span>{scheduled ? "Scheduled" : "Start"}</span>
               </div>
             </div>
@@ -499,7 +500,7 @@ export default function Viewer({ id }: { id: string }) {
                         {elapsed(
                           split.at -
                             Math.max(
-                              race.startAt,
+                              raceStart(race),
                               ...race.splits
                                 .filter((p) => p.at < split.at)
                                 .map((p) => p.at),

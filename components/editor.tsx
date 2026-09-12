@@ -314,8 +314,9 @@ export default function Editor({ token }: { token?: string }) {
                   <small>
                     In your local timezone:{" "}
                     {Intl.DateTimeFormat().resolvedOptions().timeZone}. Leaving
-                    early? Update this time before the first GPS position is
-                    accepted; earlier positions are ignored.
+                    early? GPS positions are accepted up to one hour before this
+                    time. The first accepted early position starts the race
+                    clock.
                   </small>
                 </label>
                 <label>

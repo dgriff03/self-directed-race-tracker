@@ -6,6 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   stationVisits,
+  EARLY_START_MS,
   applyFixes,
   cumulative,
   validOutAndBack,
@@ -206,11 +207,9 @@ export const api = onRequest(
               !finalRace.journey ||
               finalRace.status === "complete"
             ) {
-              res
-                .status(409)
-                .json({
-                  error: "An active out-and-back race with GPS is required.",
-                });
+              res.status(409).json({
+                error: "An active out-and-back race with GPS is required.",
+              });
               return;
             }
             res.json({ race: finalRace });
@@ -419,12 +418,14 @@ export const pollGarmin = onSchedule(
         entries
           .slice(offset, offset + 8)
           .map(async ([id, job]: [string, any]) => {
-            if (job.startAt > now) return;
+            if (job.startAt - EARLY_START_MS > now) return;
             const jobRef = db.ref(`jobs/${id}`);
             const claim = await jobRef.transaction((v) =>
               !v
                 ? v
-                : v.active && v.startAt <= now && (v.leaseUntil ?? 0) < now
+                : v.active &&
+                    v.startAt - EARLY_START_MS <= now &&
+                    (v.leaseUntil ?? 0) < now
                   ? { ...v, leaseUntil: now + 180000 }
                   : undefined,
             );
@@ -455,7 +456,10 @@ export const pollGarmin = onSchedule(
               try {
                 fixes = await fetchFeed(
                   claim.snapshot.val().feedUrl,
-                  Math.max(race.startAt, (race.fix?.at ?? race.startAt) - 1000),
+                  Math.max(
+                    race.startAt - EARLY_START_MS,
+                    (race.fix?.at ?? race.startAt - EARLY_START_MS) - 1000,
+                  ),
                 );
               } catch {
                 ok = false;
@@ -464,12 +468,15 @@ export const pollGarmin = onSchedule(
                 if (!raw) return raw;
                 if (raw.status === "complete") return;
                 const current = normalizeRace(raw);
-                if (current.startAt > Date.now()) return;
+                if (current.startAt - EARLY_START_MS > Date.now()) return;
                 const updated = applyFixes(current, fixes);
                 return {
                   ...updated,
                   status:
-                    updated.status === "scheduled" ? "live" : updated.status,
+                    updated.status === "scheduled" &&
+                    Date.now() >= updated.startAt
+                      ? "live"
+                      : updated.status,
                   heartbeatAt: Date.now(),
                   feedOk: ok,
                 };
