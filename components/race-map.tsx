@@ -118,6 +118,7 @@ export default function RaceMap({
         },
         center: raceRef.current.route[0] ?? [-105.29, 40.09],
         zoom: 11,
+        cooperativeGestures: window.matchMedia("(pointer: coarse)").matches,
         attributionControl: { compact: true },
       });
       mapRef.current = map;
@@ -158,6 +159,14 @@ export default function RaceMap({
   }, [basemap.url]);
   useEffect(() => {
     const map = mapRef.current;
+    const container = element.current;
+    if (!map || !container || !ready) return;
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [ready]);
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !ready || !race.route.length) return;
     map.resize();
     const bounds: [Coordinate, Coordinate] = [
@@ -170,7 +179,7 @@ export default function RaceMap({
         Math.max(...race.route.map((p) => p[1])),
       ],
     ];
-    map.fitBounds(bounds, { padding: 55, duration: 0 });
+    map.fitBounds(bounds, { padding: element.current!.clientWidth < 500 ? 36 : 55, duration: 0 });
   }, [ready, routeKey]);
   useEffect(() => {
     const map = mapRef.current;

@@ -1044,3 +1044,20 @@ footer {
 .form-card .direction-choice input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: 0 0 20px; accent-color: #e5672c; }
 .completed-key { display:inline-block; width:20px; height:4px; background:#153f4a; }
 .location-key { display:inline-block; width:10px; height:10px; border-radius:50%; background:#e5672c; border:2px solid white; box-shadow:0 0 0 1px #e5672c; }
+
+/* Keep the canvas shrinkable inside grid layouts, including orientation changes. */
+.map-panel, .station-panel, .map-wrap { min-width: 0; }
+.map-wrap { display: flex; flex-direction: column; }
+.map { flex: 1; min-height: 0; }
+@media (max-width: 750px) {
+  .race-grid { grid-template-columns: minmax(0, 1fr); }
+  .map-panel .panel-heading { padding: 16px; gap: 8px; flex-wrap: wrap; }
+  .map-panel .map-wrap { height: auto; }
+  .map-panel .map { flex: none; height: clamp(300px, 55svh, 480px); }
+  .map-legend { position: static; width: 100%; border-radius: 0; border-width: 1px 0 0; padding: 12px 14px; gap: 10px 16px; flex-shrink: 0; }
+  .map-legend span { white-space: nowrap; }
+  .maplibregl-ctrl-group button { width: 44px; height: 44px; }
+  .maplibregl-popup { max-width: min(260px, 80vw) !important; }
+  .maplibregl-popup-close-button { min-width: 36px; min-height: 36px; font-size: 20px; }
+  .map-bottom { padding: 14px 16px; overflow-wrap: anywhere; }
+}
