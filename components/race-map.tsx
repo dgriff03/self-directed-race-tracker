@@ -39,6 +39,7 @@ export default function RaceMap({
         race.stations,
         race.splits,
         race.fix,
+        race.status,
         race.journey?.phase,
         race.journey?.turnaroundKm,
       ]),
@@ -46,6 +47,7 @@ export default function RaceMap({
       race.stations,
       race.splits,
       race.fix,
+      race.status,
       race.journey?.phase,
       race.journey?.turnaroundKm,
     ],
@@ -278,7 +280,7 @@ export default function RaceMap({
           s.id === "finish" ? "F" : String(i + 1),
         );
       });
-      if (race.fix)
+      if (race.fix && race.status !== "complete")
         marker(
           [race.fix.lng, race.fix.lat],
           "Last known Garmin location",
@@ -311,7 +313,7 @@ export default function RaceMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    if (estimatedKm === undefined || !race.fix) {
+    if (race.status === "complete" || estimatedKm === undefined || !race.fix) {
       estimateRef.current?.remove();
       estimateRef.current = null;
       return;
@@ -337,7 +339,7 @@ export default function RaceMap({
     return () => {
       active = false;
     };
-  }, [ready, estimatedKm, routeKey, !!race.fix]);
+  }, [ready, estimatedKm, routeKey, !!race.fix, race.status]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || previewKm === undefined) return;
@@ -376,10 +378,12 @@ export default function RaceMap({
         <span>
           <i className="completed-key" /> Completed
         </span>
-        <span>
-          <i className="location-key" /> Last known location
-        </span>
-        {estimatedKm !== undefined && (
+        {race.status !== "complete" && (
+          <span>
+            <i className="location-key" /> Last known location
+          </span>
+        )}
+        {race.status !== "complete" && estimatedKm !== undefined && (
           <span>
             <i className="estimate-key" /> Estimated
           </span>
