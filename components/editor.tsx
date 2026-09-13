@@ -65,6 +65,7 @@ export default function Editor({ token }: { token?: string }) {
     [stationKm, setStationKm] = useState(""),
     [hoverKm, setHoverKm] = useState<number | undefined>(),
     [pickNotice, setPickNotice] = useState(""),
+    [saveNotice, setSaveNotice] = useState(false),
     [copied, setCopied] = useState("");
   useEffect(() => {
     if (!token) return;
@@ -185,8 +186,23 @@ export default function Editor({ token }: { token?: string }) {
     setStationKm("");
     setError("");
   };
+  useEffect(() => {
+    if (!token) return;
+    try {
+      if (sessionStorage.getItem("milemark-just-created") === "1") {
+        sessionStorage.removeItem("milemark-just-created");
+        setSaveNotice(true);
+      }
+    } catch { /* Confirmation on edits still works when storage is unavailable. */ }
+  }, [token]);
+  useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(false), 6000);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    setSaveNotice(false);
     setError("");
     setMessage("");
     if (!route.length) {
@@ -213,11 +229,14 @@ export default function Editor({ token }: { token?: string }) {
         const data = await api("/edit", "PUT", body, token);
         setSaved(data.race);
         setFeed("");
+        setPickNotice("");
+        setSaveNotice(true);
         setMessage(
           "Race saved. Viewers will receive the update automatically.",
         );
       } else {
         const data = await api("/races", "POST", body);
+        try { sessionStorage.setItem("milemark-just-created", "1"); } catch {}
         window.location.assign(`/edit/${data.editToken}`);
       }
     } catch (e) {
@@ -664,7 +683,7 @@ export default function Editor({ token }: { token?: string }) {
                   />
                 )}
                 {!locked && <p className="picker-guidance">{hoverKm !== undefined ? `Preview: ${kmToMiles(hoverKm).toFixed(2)} mi — click to set the aid station distance.` : "Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station."}</p>}
-                <div role="status" aria-live="polite">{pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
+                <div role="status" aria-live="polite">{saveNotice && <div className="picker-toast"><Check size={20} /><div><strong>Successfully saved</strong><p>Your race settings are saved.</p></div><button type="button" aria-label="Dismiss save confirmation" onClick={() => setSaveNotice(false)}>×</button></div>}{!saveNotice && pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
                   estimates for each stop.
