@@ -1069,3 +1069,11 @@ footer {
 .elevation-picker text { font-size: 18px; fill: #526c77; }
 .elevation-picker input { width: 100%; accent-color: #cb5524; min-height: 32px; }
 .map-marker.draft-station { width: 22px; height: 22px; background: #153f4a; border: 3px solid white; box-shadow: 0 0 0 5px #153f4a44; pointer-events: none; z-index: 5; }
+
+.map-pick-hint { position: absolute; top: 12px; left: 12px; right: 66px; width: fit-content; max-width: calc(100% - 78px); padding: 9px 12px; border-radius: 6px; background: #153f4a; color: white; font-size: .8rem; pointer-events: none; z-index: 3; }
+.picker-guidance { padding: 14px 16px; background: #fff3e9; color: #754222; font-size: .85rem; }
+.picker-toast { position: fixed; bottom: 20px; right: 20px; z-index: 100; width: min(420px, calc(100vw - 40px)); display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #153f4a; color: white; box-shadow: 0 6px 30px #0003; }
+.picker-toast svg { flex-shrink: 0; }
+.picker-toast p { font-size: .85rem; margin: 5px 0; }
+.picker-toast button { color: white; background: transparent; border: 0; text-decoration: underline; padding: 8px 0; cursor: pointer; }
+.picker-toast > button { margin-left: auto; font-size: 24px; padding: 0 4px; text-decoration: none; }

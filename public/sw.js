@@ -1,4 +1,4 @@
-const VERSION = "milemark-v20";
+const VERSION = "milemark-v21";
 const PRECACHE = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
 const TILE_TEMPLATES = [
   "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",

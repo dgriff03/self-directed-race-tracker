@@ -64,6 +64,7 @@ export default function Editor({ token }: { token?: string }) {
     [stationName, setStationName] = useState(""),
     [stationKm, setStationKm] = useState(""),
     [hoverKm, setHoverKm] = useState<number | undefined>(),
+    [pickNotice, setPickNotice] = useState(""),
     [copied, setCopied] = useState("");
   useEffect(() => {
     if (!token) return;
@@ -132,7 +133,13 @@ export default function Editor({ token }: { token?: string }) {
       ? Math.max(0, Math.min(total, milesToKm(Number(stationKm))))
       : undefined;
   const selectedKm = locked ? undefined : (hoverKm ?? draftKm);
+  useEffect(() => {
+    if (!pickNotice) return;
+    const timer = setTimeout(() => setPickNotice(""), 6000);
+    return () => clearTimeout(timer);
+  }, [pickNotice]);
   const pickStation = (km: number) => {
+    setPickNotice(`Aid distance set to ${kmToMiles(km).toFixed(3)} mi. Enter a name, then choose Add aid station.`);
     setStationKm(kmToMiles(km).toFixed(3));
     setHoverKm(undefined);
   };
@@ -564,7 +571,7 @@ export default function Editor({ token }: { token?: string }) {
                 ))}
                 {!locked && (
                   <>
-                    <div className="station-inputs">
+                    <div className="station-inputs" id="aid-station-fields">
                       <label>
                         Name
                         <input
@@ -655,6 +662,8 @@ export default function Editor({ token }: { token?: string }) {
                     onPick={locked ? undefined : pickStation}
                   />
                 )}
+                {!locked && <p className="picker-guidance">{hoverKm !== undefined ? `Preview: ${kmToMiles(hoverKm).toFixed(3)} mi — click to set the aid station distance.` : "Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station."}</p>}
+                <div role="status" aria-live="polite">{pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
                   estimates for each stop.
