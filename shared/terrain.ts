@@ -60,7 +60,7 @@ export function terrainDistance(r: Race, from: number, to: number): number {
   };
   return Math.max(0, at(to) - at(from));
 }
-export function terrainTravelMs(r: Race, targetKm: number): number | null {
+export function terrainCalibration(r: Race, targetKm: number): {travelMs: number; source: "rolling" | "overall"; kmh: number} | null {
   if (!r.fix || !r.elevationsM) return null;
   const total = r.distances.at(-1)!;
   const recent = r.track.filter(
@@ -69,6 +69,13 @@ export function terrainTravelMs(r: Race, targetKm: number): number | null {
       f.km !== undefined &&
       (r.journey?.phase !== "returning" || f.km >= total / 2),
   );
+  const turn = r.journey?.turnaroundKm;
+  const overallEffort = r.journey?.phase === "returning" && turn !== undefined
+    ? terrainDistance(r, 0, turn) + terrainDistance(r, total-turn, r.progressKm)
+    : terrainDistance(r, 0, r.progressKm);
+  const overallDuration = r.fix.at - (r.actualStartAt ?? r.startAt);
+  const overallSpeed = overallDuration > 0 ? overallEffort / overallDuration : 0;
+  let source: "rolling" | "overall" = "rolling";
   let effort = 0,
     duration = 0;
   if (recent.length >= 2) {
@@ -78,14 +85,15 @@ export function terrainTravelMs(r: Race, targetKm: number): number | null {
     duration = last.at - first.at;
   }
   if (effort < 0.02 || duration < 180000) {
-    const turn = r.journey?.turnaroundKm;
-    effort =
-      r.journey?.phase === "returning" && turn !== undefined
-        ? terrainDistance(r, 0, turn) +
-          terrainDistance(r, total - turn, r.progressKm)
-        : terrainDistance(r, 0, r.progressKm);
-    duration = r.fix.at - (r.actualStartAt ?? r.startAt);
+    effort = overallEffort;
+    duration = overallDuration;
+    source = "overall";
   }
   if (effort <= 0 || duration <= 0) return null;
-  return (terrainDistance(r, r.progressKm, targetKm) * duration) / effort;
+  const effectiveSpeed = source === "rolling" ? Math.max(effort/duration, overallSpeed * 0.5) : effort/duration;
+  return {travelMs: terrainDistance(r,r.progressKm,targetKm)/effectiveSpeed, source, kmh:effectiveSpeed*3600000};
+}
+
+export function terrainTravelMs(r: Race, targetKm: number): number | null {
+  return terrainCalibration(r,targetKm)?.travelMs ?? null;
 }

@@ -1,4 +1,4 @@
-import { terrainTravelMs } from "./terrain.js";
+import { terrainCalibration } from "./terrain.js";
 export type Coordinate = [number, number];
 export type Station = {
   id: string;
@@ -243,18 +243,19 @@ export function calculateEta(
 
   const dwell = context?.dwell ?? stationDwellStatus(r, now);
   const pace = context?.pace ?? paceEstimate(r);
-  const useOverall = pace.source === "overall";
+  const terrain = terrainCalibration(r, targetStationKm);
+  const useOverall = (terrain?.source ?? pace.source) === "overall";
   const effectivePace =
     r.journey?.phase === "returning"
       ? pace.kmh
       : useOverall
         ? speed(r)
         : pace.kmh;
-  if (!(effectivePace > 0)) return null;
+  if (!terrain && !(effectivePace > 0)) return null;
 
   const distKm = targetStationKm - r.progressKm;
   const travelTimeMs =
-    terrainTravelMs(r, targetStationKm) ?? (distKm / effectivePace) * 3600000;
+    terrain?.travelMs ?? (distKm / effectivePace) * 3600000;
 
   const intermediateStations = r.stations.filter((s) => {
     if (

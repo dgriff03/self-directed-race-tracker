@@ -1039,3 +1039,18 @@ test("estimated finish requires proximity, progress, grace and a fresh healthy f
     assert.equal(inferFinish(invalid, now).status, "live");
   assert.equal(inferFinish(r, eta + 1199999).status, "live");
 });
+
+test('terrain calibration owns the dwell rule and floors slow recent effort', async()=>{
+ const {terrainCalibration}=await import('../shared/terrain');
+ const r=race();r.distances=[0,1,2];r.elevationsM=[0,0,0];r.progressKm=1;
+ r.fix={lng:.01,lat:0,km:1,at:r.startAt+3600000};
+ r.track=[{lng:0,lat:0,km:.97,at:r.startAt+1800000},r.fix];
+ const calibrated=terrainCalibration(r,2)!;assert.equal(calibrated.source,'rolling');assert.ok(Math.abs(calibrated.kmh-.5)<1e-9);
+ r.track=[];r.stations=[{id:'aid',name:'Aid',km:1.5},{id:'finish',name:'Finish',km:2}];
+ const context={pace:{kmh:4,source:'rolling' as const},dwell:{atStation:false,dwellMs:0}};
+ assert.equal(terrainCalibration(r,2)?.source,'overall');
+ assert.equal(calculateEta(r,2,'finish',r.fix.at,context),r.fix.at+3600000);
+ r.track=[{lng:0,lat:0,km:.5,at:r.startAt+1800000},r.fix];
+ context.pace={kmh:1,source:'overall'} as any;
+ assert.equal(calculateEta(r,2,'finish',r.fix.at,context),r.fix.at+3600000+600000);
+});

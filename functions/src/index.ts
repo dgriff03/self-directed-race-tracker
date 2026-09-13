@@ -435,6 +435,17 @@ export const pollGarmin = onSchedule(
             if (!claim.committed) return;
             try {
               const ref = db.ref(`races/${id}`);
+              const [status, nextPoll] = await Promise.all([
+                ref.child("status").get(), ref.child("nextPollAt").get(),
+              ]);
+              if (!status.exists() || status.val() === "complete") {
+                await jobRef.update({active: false});
+                return;
+              }
+              if ((nextPoll.val() ?? 0) > now) {
+                await ref.child("heartbeatAt").set(now);
+                return;
+              }
               const raw = (await ref.get()).val();
               if (!raw || raw.status === "complete") {
                 await jobRef.update({ active: false });
@@ -452,16 +463,6 @@ export const pollGarmin = onSchedule(
               ) {
                 await ref.update({ trackingPaused: true });
                 await jobRef.update({ active: false });
-                return;
-              }
-              if ((race.nextPollAt ?? 0) > now) {
-                await ref.transaction((raw) =>
-                  !raw
-                    ? raw
-                    : raw.status === "complete"
-                      ? undefined
-                      : { ...raw, heartbeatAt: now },
-                );
                 return;
               }
               let fixes: any[] = [];

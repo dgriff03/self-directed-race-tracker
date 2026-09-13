@@ -1080,3 +1080,6 @@ footer {
 
 .feed-failure { background: #fee2e2; color: #991b1b; border: 1px solid #ef4444; }
 .feed-failure strong { font-size: 1.15rem; }
+
+.estimated-finish-notice { background: #fff3cd; border: 2px solid #b87817; color: #69410b; }
+.estimated-finish-notice strong { display: block; font-size: 1.15rem; margin-bottom: 6px; }

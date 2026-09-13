@@ -237,7 +237,7 @@ export default function Viewer({ id }: { id: string }) {
               {demo
                 ? "DEMO RACE"
                 : complete
-                  ? "FINISHED"
+                  ? race.finishSource === "estimated" ? "ESTIMATED FINISH" : "FINISHED"
                   : scheduled
                     ? "UPCOMING"
                     : "LIVE RACE"}
@@ -263,7 +263,8 @@ export default function Viewer({ id }: { id: string }) {
         </button>
       </section>
       {complete && race.finishSource && (
-        <div className="notice">
+        <div className={`notice ${race.finishSource === "estimated" ? "estimated-finish-notice" : ""}`} role="status">
+          {race.finishSource === "estimated" && <strong>Estimated finish — not GPS-confirmed</strong>}
           {race.finishSource === "estimated"
             ? "Estimated finish — inferred from the last nearby position and pace after waiting for another update. No GPS fix confirms the finish."
             : "Finish time reported by the organizer."}
