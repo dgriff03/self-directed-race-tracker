@@ -28,4 +28,8 @@ xml=`<kml><Placemark><TimeStamp><when>${new Date(earlyAt+30000).toISOString()}</
 await pollNow(); data=(await db.ref(`races/${id}`).get()).val();
 assert.equal(data.status,'live'); assert.equal(data.actualStartAt,earlyAt);
 const beforeSkip=calls; await pollGarmin.run({}); assert.equal(calls,beforeSkip);
+const inferenceNow=Date.now();
+await db.ref(`races/${id}`).set({...r,status:'live',startAt:inferenceNow-7200000,progressKm:2.1,fix:{lng:.0189,lat:0,at:inferenceNow-2400000,km:2.1},previousFix:{lng:.0171,lat:0,at:inferenceNow-3000000,km:1.9},lastFeedPointAt:inferenceNow-2400000,lastLocationReceivedAt:inferenceNow-2400000,feedOk:true});
+await db.ref(`jobs/${id}`).update({active:true,startAt:inferenceNow-7200000});xml='<kml><Document/></kml>';
+await pollNow();data=(await db.ref(`races/${id}`).get()).val();assert.equal(data.status,'complete');assert.equal(data.finishSource,'estimated');assert.equal((await db.ref(`jobs/${id}/active`).get()).val(),false);
 console.log('PASS: scheduled polling claims lease, healthy heartbeat without points, failure heartbeat, splits and automatic finish; completed race is not fetched again.');}finally{globalThis.fetch=original;await db.ref().update({[`races/${id}`]:null,[`jobs/${id}`]:null,[`limits/expiry-${id}`]:null});db.goOffline();}

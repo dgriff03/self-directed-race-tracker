@@ -14,6 +14,7 @@ import {
   type Race,
 } from "../../shared/race.js";
 import { requestIp } from "./request-ip.js";
+import { inferFinish } from "../../shared/finish.js";
 import { feedUpdate } from "../../shared/polling.js";
 import { fetchFeed, validateFeed } from "./feed.js";
 initializeApp();
@@ -478,7 +479,12 @@ export const pollGarmin = onSchedule(
                 ok = false;
                 feedError =
                   error instanceof Error &&
-                  (/^Garmin HTTP \d{3}$/.test(error.message) || ["Garmin feed exceeded 5 MB", "Garmin returned an empty feed", "Garmin returned invalid KML"].includes(error.message))
+                  (/^Garmin HTTP \d{3}$/.test(error.message) ||
+                    [
+                      "Garmin feed exceeded 5 MB",
+                      "Garmin returned an empty feed",
+                      "Garmin returned invalid KML",
+                    ].includes(error.message))
                     ? error.message
                     : error instanceof Error && error.name === "TimeoutError"
                       ? "Garmin request timed out"
@@ -493,22 +499,23 @@ export const pollGarmin = onSchedule(
                   .child("lastFeedFailure")
                   .set({ at: now, reason: feedError });
               const timing = feedUpdate(race, fixes, now, ok);
-              await jobRef
-                .child("lastPollDiagnostic")
-                .set({
-                  at: now,
-                  ok,
-                  pointCount: fixes.length,
-                  newestPointAt: timing.lastFeedPointAt,
-                  error: feedError,
-                });
+              await jobRef.child("lastPollDiagnostic").set({
+                at: now,
+                ok,
+                pointCount: fixes.length,
+                newestPointAt: timing.lastFeedPointAt,
+                error: feedError,
+              });
               await ref.transaction((raw) => {
                 if (!raw) return raw;
                 if (raw.status === "complete") return;
                 const current = normalizeRace(raw);
                 if (current.revision !== race.revision) return;
                 if (current.startAt - EARLY_START_MS > Date.now()) return;
-                const updated = applyFixes(current, fixes);
+                const updated = inferFinish(
+                  { ...applyFixes(current, fixes), ...timing },
+                  Date.now(),
+                );
                 return {
                   ...updated,
                   ...timing,

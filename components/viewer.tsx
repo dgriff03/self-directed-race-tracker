@@ -262,6 +262,13 @@ export default function Viewer({ id }: { id: string }) {
           {copied ? "Link copied" : "Share race"}
         </button>
       </section>
+      {complete && race.finishSource && (
+        <div className="notice">
+          {race.finishSource === "estimated"
+            ? "Estimated finish — inferred from the last nearby position and pace after waiting for another update. No GPS fix confirms the finish."
+            : "Finish time reported by the organizer."}
+        </div>
+      )}
       {demo && (
         <div className="notice">
           This is a sample course with simulated tracking data.{" "}
@@ -515,7 +522,9 @@ export default function Viewer({ id }: { id: string }) {
                     </strong>
                     <span>
                       {split
-                        ? "Est. crossing"
+                        ? s.id === "finish" && race.finishSource === "reported"
+                          ? "Reported finish"
+                          : "Est. crossing"
                         : stationSkipped(race, s.id)
                           ? "Skipped · early return"
                           : complete
@@ -545,7 +554,9 @@ export default function Viewer({ id }: { id: string }) {
           <div>
             <h3>A clear picture between updates</h3>
             <p>
-              Garmin sends positions at its configured interval. We learn the message spacing and check near the next expected delivery. Satellite delays can change when a position arrives.
+              Garmin sends positions at its configured interval. We learn the
+              message spacing and check near the next expected delivery.
+              Satellite delays can change when a position arrives.
             </p>
           </div>
         </div>

@@ -107,6 +107,8 @@ export async function subscribe(
     "nextUpdateExpectedAt",
     "feedError",
     "finishedAt",
+    "finishSource",
+    "finishInferredAt",
     "revision",
     "track",
     "trackingPaused",

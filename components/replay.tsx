@@ -3,6 +3,8 @@ import { Header } from "./viewer";
 import RaceMap from "./race-map";
 import { parseGpxWithElevation } from "../lib/gpx";
 import { parseReplayKml } from "../lib/parse-replay-kml";
+import { inferFinish } from "../shared/finish";
+import demoRecording from "../lib/replay-demo.json";
 import { ReplayEngine } from "../lib/replay";
 import {
   validOutAndBack,
@@ -32,6 +34,7 @@ const localDate = (n: number) =>
     .toISOString()
     .slice(0, 19);
 export default function Replay() {
+  const [usingDemo, setUsingDemo] = useState(false);
   const [outAndBack, setOutAndBack] = useState(false);
   const [course, setCourse] = useState<ReturnType<
     typeof parseGpxWithElevation
@@ -102,9 +105,44 @@ export default function Replay() {
     [initial, points],
   );
   const first = points[0]?.at ?? 0,
-    last = points.at(-1)?.at ?? 0;
+    lastPoint = points.at(-1)?.at ?? 0,
+    last = lastPoint + (usingDemo ? 3600000 : 0);
   const lower = first ? Math.min(first, start) - 1000 : 0;
-  const race = useMemo(() => engine?.seek(cursor) ?? null, [engine, cursor]);
+  const race = useMemo(() => {
+    const state = engine?.seek(cursor) ?? null;
+    return state && usingDemo
+      ? inferFinish(
+          {
+            ...state,
+            feedOk: true,
+            lastPollAt: cursor,
+            lastFeedPointAt: lastPoint,
+            feedCadenceMs: 600000,
+          },
+          cursor,
+        )
+      : state;
+  }, [engine, cursor, usingDemo, lastPoint]);
+  const useDemo = () => {
+    uploads.current.gpx++;
+    uploads.current.kml++;
+    uploadController.current?.abort();
+    setReadingKml(false);
+    setPlaying(false);
+    setError("");
+    setUsingDemo(true);
+    setCourse({
+      route: demoRecording.route as [number, number][],
+      elevationsM: demoRecording.elevationsM,
+    });
+    setPoints(demoRecording.points);
+    setStations(demoRecording.stations.filter((s) => s.id !== "finish"));
+    setStart(demoRecording.startAt);
+    setCursor(demoRecording.startAt - 1000);
+    setOutAndBack(true);
+    setGpxName("Highline out-and-back.gpx");
+    setKmlName("Highline · 11 real Garmin positions.kml");
+  };
   useEffect(() => {
     if (!playing) return;
     let previous = performance.now();
@@ -121,6 +159,7 @@ export default function Replay() {
   }, [cursor, last]);
   async function upload(kind: "gpx" | "kml", file?: File) {
     if (!file) return;
+    setUsingDemo(false);
     const version = ++uploads.current[kind];
     let controller: AbortController | undefined;
     if (kind === "kml") {
@@ -177,6 +216,20 @@ export default function Replay() {
         </p>
       </section>
       <section className="replay-controls form-card">
+        <button type="button" className="button secondary" onClick={useDemo}>
+          Use demo data
+        </button>
+        {usingDemo && (
+          <p className="field-note">
+            Real Highline recording: 11 positions about ten minutes apart.
+            Playback includes one hour after the last point to demonstrate
+            estimated auto-finish. A healthy feed is simulated during that final
+            hour; no finish GPS point is invented.
+          </p>
+        )}
+        {race?.finishSource === "estimated" && (
+          <p className="notice">Estimated finish · no confirming GPS point</p>
+        )}
         {readingKml && (
           <p role="status">
             Reading KML recording… You can replace the file to cancel.
@@ -235,7 +288,7 @@ export default function Replay() {
         {points.length > 0 && (
           <p>
             {points.length.toLocaleString()} recorded positions · {stamp(first)}{" "}
-            — {stamp(last)}
+            — {stamp(lastPoint)}
           </p>
         )}
         {race && (

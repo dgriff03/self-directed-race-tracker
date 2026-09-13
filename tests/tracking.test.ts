@@ -1006,3 +1006,36 @@ test("feed timing learns ten-minute transmissions, skips early polling and retri
   assert.equal(feedUpdate(r, [], t + 1800000, false).nextPollAt, t + 1860000);
   assert.equal(feedUpdate(r, fixes, t + 3600000, true).nextPollAt, t + 3900000);
 });
+
+test("estimated finish requires proximity, progress, grace and a fresh healthy feed", async () => {
+  const { inferFinish } = await import("../shared/finish");
+  const r = race();
+  r.route = [
+    [0, 0],
+    [0.09, 0],
+  ];
+  r.distances = [0, 10];
+  r.stations = [{ id: "finish", name: "Finish", km: 10 }];
+  r.progressKm = 9.5;
+  r.fix = { lng: 0.0855, lat: 0, at: r.startAt + 3600000, km: 9.5 };
+  r.previousFix = { lng: 0.08, lat: 0, at: r.fix.at - 600000, km: 8.5 };
+  r.feedOk = true;
+  const eta = calculateEta(r, 10, "finish", r.fix.at)!;
+  const now = eta + 1200000;
+  r.lastPollAt = now;
+  const result = inferFinish(r, now);
+  assert.equal(result.status, "complete");
+  assert.equal(result.finishSource, "estimated");
+  assert.equal(result.finishedAt, eta);
+  assert.equal(result.fix, r.fix);
+  assert.equal(inferFinish({ ...r, feedOk: false }, now).status, "live");
+  for (const invalid of [
+    { ...r, lastPollAt: now - 180000 },
+    { ...r, progressKm: 8 },
+    { ...r, lastFeedPointAt: r.fix.at + 1 },
+    { ...r, previousFix: { ...r.previousFix, km: 9.6 } },
+    { ...r, outAndBack: true },
+  ])
+    assert.equal(inferFinish(invalid, now).status, "live");
+  assert.equal(inferFinish(r, eta + 1199999).status, "live");
+});

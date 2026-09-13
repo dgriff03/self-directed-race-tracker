@@ -42,6 +42,8 @@ export type Race = {
   feedDeliveryGaps?: number[];
   feedError?: string | null;
   finishedAt: number | null;
+  finishSource?: "estimated" | "reported";
+  finishInferredAt?: number;
   revision: number;
   track: Fix[];
   trackingPaused?: boolean;
