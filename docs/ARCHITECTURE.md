@@ -63,3 +63,13 @@ Feed diagnostics include at least the previous 24 hours even before the race sta
 In this mode `progressKm` is chainage on the original planned GPX (outbound position or total minus outbound position on return). Display helpers calculate the shortened total and distance completed without counting the skipped middle of the course. Elevation helpers likewise exclude the bypassed segment. Station positions remain stored in original route chainage; skipped status and revised displayed mileage are derived. The planned GPX and earlier crossings remain available after completion.
 
 Direction overrides run inside the private edit API's RTDB transaction, sharing the scheduler's atomic race state. They increment configuration revision. Returning mode can be undone only while the trip is active; it removes inferred return crossings and rearms early detection after renewed outbound progress. The scheduler stops on completion through the existing lifecycle. Replay uses the same engine with a simulated clock, so backward seeking reconstructs the earlier direction and split state.
+
+## Storage layout (September 2026)
+
+- `races/{id}` contains live state, station configuration, and an immutable `courseVersion` pointer. It excludes route geometry, derived distances, and breadcrumb history.
+- `courses/{id}/{version}` stores coordinates rounded to six decimal places and integer-meter elevations. Versions change only when course data changes. Viewers fetch each version once; warm function instances retain up to 24 courses. Cold instances must fetch a course for GPS projection.
+- `tracks/{id}/{timestamp}` stores up to 500 fixes with stable millisecond timestamp keys (the feed accepts only one fix per timestamp). Latitude/longitude use six decimals; kilometer fields use three. Child listeners receive additions/removals, and trimming removes the oldest keys without reindexing others.
+- Poll transactions include a small `trackOutbox` of newly accepted fixes. Idempotent flush appends these outside the live node, then conditionally clears the outbox and trims history. A crash between steps can be retried, including after completion.
+- `distances` are computed from the course in memory, not persisted. Legacy full-node races remain readable while migrating. Course and track reads require knowing the race UUID; global lists and all client writes remain denied.
+
+Course edits prewrite an immutable course version before transactionally changing the live pointer; failed edits remove their unused candidate version. Previous versions are retained so a reader holding an earlier pointer remains valid. Name-only edits reuse the version. Polyline encoding is deferred; separating static data removes repeated transfers without introducing another format.

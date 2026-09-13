@@ -4,8 +4,16 @@ import {
   getDatabase,
   connectDatabaseEmulator,
   onValue,
+  get,
+  query,
+  limitToLast,
+  orderByKey,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
   ref,
 } from "firebase/database";
+import { hydrateRace, type Course } from "../shared/storage";
 import { stationVisits, type Race } from "../shared/race";
 type Config = {
   apiKey: string;
@@ -57,19 +65,7 @@ export async function api(
   return data;
 }
 export function normalize(v: Race): Race {
-  return {
-    ...v,
-    route: v.route ?? [],
-    distances: v.distances ?? [],
-    stations: stationVisits(v.stations ?? [], v.distances ?? [], v.outAndBack),
-    splits: v.splits ?? [],
-    track: v.track ?? [],
-    fix: v.fix ?? null,
-    previousFix: v.previousFix ?? null,
-    heartbeatAt: v.heartbeatAt ?? null,
-    finishedAt: v.finishedAt ?? null,
-    feedOk: v.feedOk ?? null,
-  };
+  return hydrateRace(v);
 }
 export async function subscribe(
   id: string,
@@ -88,6 +84,7 @@ export async function subscribe(
   // Subscribe at field boundaries: route geometry is never resent with a heartbeat.
   const fields: (keyof Race)[] = [
     "id",
+    "courseVersion",
     "name",
     "startAt",
     "actualStartAt",
@@ -117,25 +114,94 @@ export async function subscribe(
   ];
   const value: any = {};
   const loaded = new Set<string>();
-  let queued = false;
+  const breadcrumbs = new Map<string, any>();
+  const courses = new Map<string, Course>();
+  let trackLoaded = false,
+    queued = false,
+    stopped = false;
+  const emit = () => {
+    if (stopped || queued || loaded.size !== fields.length || !trackLoaded)
+      return;
+    const version = value.courseVersion;
+    if (version && !courses.has(version)) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      if (stopped) return;
+      const version = value.courseVersion;
+      if (version && !courses.has(version)) return;
+      const track = version
+        ? [...breadcrumbs.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([, v]) => v)
+        : undefined;
+      onRace(
+        value.id
+          ? hydrateRace(
+              { ...value },
+              version ? courses.get(version) : undefined,
+              track,
+            )
+          : null,
+      );
+    });
+  };
   const stops = fields.map((key) =>
     onValue(
       ref(db, `races/${id}/${key}`),
       (snapshot) => {
         value[key] = snapshot.val();
         loaded.add(key);
-        if (loaded.size === fields.length && !queued) {
-          queued = true;
-          queueMicrotask(() => {
-            queued = false;
-            onRace(value.id ? normalize({ ...value }) : null);
-          });
+        if (key === "courseVersion" && value[key] && !courses.has(value[key])) {
+          const version = value[key];
+          get(ref(db, `courses/${id}/${version}`))
+            .then((s) => {
+              if (stopped) return;
+              if (!s.exists()) throw Error("Course data could not be loaded");
+              courses.set(version, s.val());
+              emit();
+            })
+            .catch(onError);
         }
+        emit();
       },
       onError,
     ),
   );
+  const trackRef = query(
+    ref(db, `tracks/${id}`),
+    orderByKey(),
+    limitToLast(500),
+  );
+  const add = (s: any) => {
+    breadcrumbs.set(s.key, s.val());
+    emit();
+  };
+  stops.push(
+    onChildAdded(trackRef, add, onError),
+    onChildChanged(trackRef, add, onError),
+    onChildRemoved(
+      trackRef,
+      (s) => {
+        breadcrumbs.delete(s.key!);
+        emit();
+      },
+      onError,
+    ),
+  );
+  stops.push(
+    onValue(
+      trackRef,
+      () => {
+        trackLoaded = true;
+        emit();
+      },
+      onError,
+      { onlyOnce: true },
+    ),
+  );
   return () => {
+    stopped = true;
     stopConnection();
     stops.forEach((stop) => stop());
   };

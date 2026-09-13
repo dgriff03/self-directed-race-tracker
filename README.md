@@ -199,3 +199,9 @@ A healthy Garmin poll can mark an estimated finish after the anchored finish ETA
 `/replay` has **Use demo data**, using the Highline recording and its configured aids. Its 11 original points are preserved. An extra hour of playback simulates a healthy feed with no new positions to demonstrate estimated completion. Seeking backward removes the inferred finish. The historical race's organizer-reported finish is separate from this demo inference.
 
 Skipped Garmin polls read only the status and next-poll timestamp and write the heartbeat child, avoiding full race-node transfers. Terrain ETA dwell allowances follow the terrain calibration source; recent calibrated effort speed is floored at half the whole-race effort speed. Estimated completion has a distinct badge and prominent unconfirmed-finish notice.
+
+### Compact race storage
+
+Live state, immutable course versions, and the last 500 breadcrumbs now live in separate nodes (`races`, `courses`, `tracks`). Distances are derived in memory. GPS coordinates use six decimal places, distance fields three decimal kilometers, and elevations integer meters. Stable timestamp keys make breadcrumb updates append-only with separate trimming. See [storage layout](docs/ARCHITECTURE.md#storage-layout-september-2026) for caching and crash recovery. Already-open tabs from before this schema update need a normal refresh.
+
+For existing data, `node scripts/migrate-race-storage.mjs` previews the migration and saves a local backup under `work/`. After deploying the compatible viewer, rules, and functions, run with `MILEMARK_MIGRATE=1` to apply conditional per-race updates. It refuses a moving live race; it does not silently overwrite concurrent changes. Firebase CLI authentication and built functions are required.

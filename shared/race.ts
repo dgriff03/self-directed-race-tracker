@@ -16,6 +16,7 @@ export type Fix = {
 export type Split = { stationId: string; at: number; estimated: boolean };
 export type Race = {
   id: string;
+  courseVersion?: string;
   name: string;
   startAt: number;
   actualStartAt?: number;
@@ -416,7 +417,7 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       ...out.track,
       ...(confirmedPending ? [confirmedPending] : []),
       { ...fix, km },
-    ].slice(-2000);
+    ].slice(-500);
     out.status = "live";
     const total = out.distances.at(-1)!;
     if (
@@ -780,7 +781,7 @@ function applyOutAndBackFix(
   r.fix = { ...fix, km: progress, outboundKm: km };
   r.progressKm = progress;
   r.pendingFix = null;
-  r.track = [...r.track, { ...fix, km: progress, outboundKm: km }].slice(-2000);
+  r.track = [...r.track, { ...fix, km: progress, outboundKm: km }].slice(-500);
   r.status = "live";
   if (
     j.phase === "returning" &&

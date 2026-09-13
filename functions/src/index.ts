@@ -1,3 +1,17 @@
+import {
+  storedCourse,
+  storedLive,
+  hydrateRace,
+  storedFix,
+  trackKey,
+} from "../../shared/storage.js";
+import {
+  loadRace,
+  withStatic,
+  persistRace,
+  withTrackOutbox,
+  flushTrack,
+} from "./race-storage.js";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase } from "firebase-admin/database";
 import { onRequest } from "firebase-functions/v2/https";
@@ -57,21 +71,7 @@ export function sameStations(a: Race["stations"], b: Race["stations"]) {
     )
   );
 }
-export function normalizeRace(v: any): Race {
-  return {
-    ...v,
-    route: v.route ?? [],
-    distances: v.distances ?? [],
-    stations: stationVisits(v.stations ?? [], v.distances ?? [], v.outAndBack),
-    splits: v.splits ?? [],
-    track: v.track ?? [],
-    fix: v.fix ?? null,
-    previousFix: v.previousFix ?? null,
-    finishedAt: v.finishedAt ?? null,
-    heartbeatAt: v.heartbeatAt ?? null,
-    feedOk: v.feedOk ?? null,
-  };
-}
+export function normalizeRace(v: any): Race { return hydrateRace(v); }
 export const api = onRequest(
   { region: "us-central1", cors: true, maxInstances: 10, timeoutSeconds: 30 },
   async (req, res) => {
@@ -97,6 +97,7 @@ export const api = onRequest(
           return;
         }
         const input = configSchema.parse(req.body);
+        input.route = storedCourse(input).route;
         if (
           input.elevationsM &&
           input.elevationsM.length !== input.route.length
@@ -119,6 +120,7 @@ export const api = onRequest(
           editToken = randomUUID();
         const race: Race = {
           id,
+          courseVersion: randomUUID(),
           outAndBack: input.outAndBack,
           name: input.name,
           startAt: input.startAt,
@@ -141,7 +143,8 @@ export const api = onRequest(
           track: [],
         };
         await db.ref().update({
-          [`races/${id}`]: race,
+          [`courses/${id}/${race.courseVersion}`]: storedCourse(race),
+          [`races/${id}`]: storedLive(race),
           [`editKeys/${hash(editToken)}`]: id,
           [`jobs/${id}`]: {
             feedUrl: input.feedUrl,
@@ -168,7 +171,7 @@ export const api = onRequest(
           res.status(404).json({ error: "Race not found." });
           return;
         }
-        const race = normalizeRace(snapshot.val());
+        const race = await loadRace(snapshot.val());
         if (req.method === "GET") {
           res.json({ race, feedConfigured: true });
           return;
@@ -180,7 +183,7 @@ export const api = onRequest(
           ) {
             const result = await ref.transaction((raw) => {
               if (!raw) return raw;
-              const current = normalizeRace(raw);
+              const current = withStatic(raw, race);
               if (
                 !current.outAndBack ||
                 !current.fix ||
@@ -188,14 +191,14 @@ export const api = onRequest(
                 current.status === "complete"
               )
                 return raw;
-              return {
+              return persistRace({
                 ...setJourneyDirection(
                   current,
                   req.body.action === "turnaround" ? "returning" : "outbound",
                 ),
                 stations: current.stations.filter((s) => !s.returnOf),
                 revision: current.revision + 1,
-              };
+              });
             });
             if (!result.committed || !result.snapshot.exists()) {
               res.status(409).json({
@@ -203,7 +206,7 @@ export const api = onRequest(
               });
               return;
             }
-            const finalRace = normalizeRace(result.snapshot.val());
+            const finalRace = await loadRace(result.snapshot.val());
             if (
               !finalRace.outAndBack ||
               !finalRace.fix ||
@@ -278,6 +281,7 @@ export const api = onRequest(
           return;
         }
         const input = configSchema.parse(req.body);
+        input.route = storedCourse(input).route;
         if (
           input.elevationsM &&
           input.elevationsM.length !== input.route.length
@@ -296,17 +300,41 @@ export const api = onRequest(
             input.stations.length
         )
           throw Error("Check route and aid station distances.");
+        const course = storedCourse({
+          route: input.route,
+          elevationsM:
+            input.elevationsM !== undefined
+              ? input.elevationsM
+              : JSON.stringify(input.route) === JSON.stringify(storedCourse(race).route) ? race.elevationsM : null,
+        });
+        const courseChanged =
+          !race.courseVersion ||
+          JSON.stringify(course) !== JSON.stringify(storedCourse(race));
+        const courseVersion = courseChanged
+          ? randomUUID()
+          : race.courseVersion!;
+        if (courseChanged)
+          await db.ref(`courses/${id}/${courseVersion}`).set(course);
+        if (!race.courseVersion && race.track.length)
+          await db
+            .ref(`tracks/${id}`)
+            .update(
+              Object.fromEntries(
+                race.track.slice(-500).map((f) => [trackKey(f), storedFix(f)]),
+              ),
+            );
         let conflict = false;
         const updated = await ref.transaction((raw) => {
           if (!raw) return raw;
-          const current = normalizeRace(raw);
+          const current = withStatic(raw, race);
           if (current.revision !== input.revision) {
             conflict = true;
             return;
           }
           if (current.fix || current.status === "complete") {
             if (
-              JSON.stringify(current.route) !== JSON.stringify(input.route) ||
+              JSON.stringify(storedCourse(current).route) !==
+                JSON.stringify(input.route) ||
               !!current.outAndBack !== input.outAndBack ||
               current.startAt !== input.startAt ||
               !sameStations(
@@ -318,8 +346,9 @@ export const api = onRequest(
             )
               return;
           }
-          return {
+          return storedLive({
             ...current,
+            courseVersion,
             outAndBack: input.outAndBack,
             name: input.name,
             startAt: input.startAt,
@@ -336,9 +365,11 @@ export const api = onRequest(
               { id: "finish", name: "Finish line", km: total },
             ],
             revision: current.revision + 1,
-          };
+          });
         });
         if (!updated.committed) {
+          if (courseChanged)
+            await db.ref(`courses/${id}/${courseVersion}`).remove();
           res.status(409).json({
             error: conflict
               ? "Race changed. Reload before saving."
@@ -361,7 +392,7 @@ export const api = onRequest(
           await ref.update({ trackingPaused: false });
         res.json({
           race: {
-            ...normalizeRace(updated.snapshot.val()),
+            ...(await loadRace(updated.snapshot.val())),
             ...(input.feedUrl && race.status !== "complete"
               ? { trackingPaused: false }
               : {}),
@@ -436,10 +467,13 @@ export const pollGarmin = onSchedule(
             try {
               const ref = db.ref(`races/${id}`);
               const [status, nextPoll] = await Promise.all([
-                ref.child("status").get(), ref.child("nextPollAt").get(),
+                ref.child("status").get(),
+                ref.child("nextPollAt").get(),
+                ref.child("revision").get(),
               ]);
               if (!status.exists() || status.val() === "complete") {
-                await jobRef.update({active: false});
+                if (status.exists()) await flushTrack(id);
+                await jobRef.update({ active: false });
                 return;
               }
               if ((nextPoll.val() ?? 0) > now) {
@@ -451,7 +485,8 @@ export const pollGarmin = onSchedule(
                 await jobRef.update({ active: false });
                 return;
               }
-              const race = normalizeRace(raw);
+              await flushTrack(id);
+              const race = await loadRace(raw);
               if (
                 now -
                   Math.max(
@@ -510,7 +545,7 @@ export const pollGarmin = onSchedule(
               await ref.transaction((raw) => {
                 if (!raw) return raw;
                 if (raw.status === "complete") return;
-                const current = normalizeRace(raw);
+                const current = withStatic(raw, race);
                 if (current.revision !== race.revision) return;
                 if (current.startAt - EARLY_START_MS > Date.now()) return;
                 const updated = inferFinish(
@@ -518,10 +553,12 @@ export const pollGarmin = onSchedule(
                   Date.now(),
                 );
                 return {
-                  ...updated,
+                  ...withTrackOutbox(updated, current),
                   ...timing,
                   feedError,
-                  stations: updated.stations.filter((s) => !s.returnOf),
+                  stations: updated.courseVersion
+                    ? storedLive(updated).stations
+                    : updated.stations.filter((s) => !s.returnOf),
                   status:
                     updated.status === "scheduled" &&
                     Date.now() >= updated.startAt
@@ -531,6 +568,7 @@ export const pollGarmin = onSchedule(
                   feedOk: ok,
                 };
               });
+              await flushTrack(id);
               if ((await ref.child("status").get()).val() === "complete")
                 await jobRef.update({ active: false });
             } finally {
