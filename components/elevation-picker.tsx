@@ -126,7 +126,7 @@ export default function ElevationPicker({
             type="range"
             min="0"
             max={total}
-            step="0.001"
+            step={0.01 / 0.621371192237334}
             value={km}
             onChange={(e) => {
               onHover(undefined);

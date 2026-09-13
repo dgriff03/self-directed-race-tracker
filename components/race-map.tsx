@@ -362,7 +362,7 @@ export default function RaceMap({
   return (
     <div className="map-wrap">
       <div className="map" ref={element} aria-label="Race route map" />
-      {onPick && previewKm !== undefined && <div className="map-pick-hint">{kmToMiles(previewKm).toFixed(3)} mi · Click or tap to set aid distance</div>}
+      {onPick && previewKm !== undefined && <div className="map-pick-hint">{kmToMiles(previewKm).toFixed(2)} mi · Click or tap to set aid distance</div>}
       {error && (
         <div className="map-notice">
           Some map tiles are unavailable. The route and splits remain available.

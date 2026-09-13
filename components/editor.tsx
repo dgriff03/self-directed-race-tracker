@@ -139,8 +139,8 @@ export default function Editor({ token }: { token?: string }) {
     return () => clearTimeout(timer);
   }, [pickNotice]);
   const pickStation = (km: number) => {
-    setPickNotice(`Aid distance set to ${kmToMiles(km).toFixed(3)} mi. Enter a name, then choose Add aid station.`);
-    setStationKm(kmToMiles(km).toFixed(3));
+    setPickNotice(`Aid distance set to ${kmToMiles(km).toFixed(2)} mi. Enter a name, then choose Add aid station.`);
+    setStationKm(kmToMiles(km).toFixed(2));
     setHoverKm(undefined);
   };
   const preview: Race = {
@@ -587,11 +587,12 @@ export default function Editor({ token }: { token?: string }) {
                           type="number"
                           min="0"
                           max={kmToMiles(total)}
-                          step="0.001"
+                          step="0.01"
                           placeholder="8.50"
                           value={stationKm}
                           onChange={(e) => {
-                            setStationKm(e.target.value);
+                            const value = e.target.value;
+                            setStationKm(value && Number.isFinite(Number(value)) && /\.\d{3,}|e/i.test(value) ? Number(value).toFixed(2) : value);
                             setHoverKm(undefined);
                           }}
                         />
@@ -662,7 +663,7 @@ export default function Editor({ token }: { token?: string }) {
                     onPick={locked ? undefined : pickStation}
                   />
                 )}
-                {!locked && <p className="picker-guidance">{hoverKm !== undefined ? `Preview: ${kmToMiles(hoverKm).toFixed(3)} mi — click to set the aid station distance.` : "Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station."}</p>}
+                {!locked && <p className="picker-guidance">{hoverKm !== undefined ? `Preview: ${kmToMiles(hoverKm).toFixed(2)} mi — click to set the aid station distance.` : "Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station."}</p>}
                 <div role="status" aria-live="polite">{pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
