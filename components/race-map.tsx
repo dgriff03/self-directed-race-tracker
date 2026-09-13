@@ -16,9 +16,13 @@ export default function RaceMap({
   race,
   estimatedKm,
   onPick,
+  previewKm,
+  onHover,
 }: {
   race: Race;
   estimatedKm?: number;
+  previewKm?: number;
+  onHover?: (km?: number) => void;
   onPick?: (km: number) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
@@ -66,6 +70,8 @@ export default function RaceMap({
       : preferred;
   const [ready, setReady] = useState(0);
   const [error, setError] = useState(false);
+  const hoverRef = useRef(onHover);
+  hoverRef.current = onHover;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
   const raceRef = useRef(race);
@@ -144,6 +150,16 @@ export default function RaceMap({
           setFailedProvider(USGS.url);
         else setError(true);
       });
+      map.on("mousemove", (e) => {
+        if (!hoverRef.current) return;
+        const r = raceRef.current;
+        hoverRef.current(
+          project(r.route, r.distances, [e.lngLat.lng, e.lngLat.lat]).km,
+        );
+      });
+      map
+        .getCanvas()
+        .addEventListener("mouseleave", () => hoverRef.current?.(undefined));
       map.on("click", (e) => {
         const r = raceRef.current;
         const match = project(r.route, r.distances, [
@@ -321,6 +337,28 @@ export default function RaceMap({
       active = false;
     };
   }, [ready, estimatedKm, routeKey, !!race.fix]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || previewKm === undefined) return;
+    let active = true;
+    let marker: import("maplibre-gl").Marker | undefined;
+    import("maplibre-gl").then((m) => {
+      if (!active) return;
+      const el = document.createElement("div");
+      el.className = "map-marker draft-station";
+      el.setAttribute(
+        "aria-label",
+        `Selected aid location: ${kmToMiles(previewKm).toFixed(2)} miles`,
+      );
+      marker = new m.Marker({ element: el })
+        .setLngLat(atDistance(race.route, race.distances, previewKm))
+        .addTo(map);
+    });
+    return () => {
+      active = false;
+      marker?.remove();
+    };
+  }, [ready, previewKm, routeKey]);
   return (
     <div className="map-wrap">
       <div className="map" ref={element} aria-label="Race route map" />

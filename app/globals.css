@@ -1061,3 +1061,11 @@ footer {
   .maplibregl-popup-close-button { min-width: 36px; min-height: 36px; font-size: 20px; }
   .map-bottom { padding: 14px 16px; overflow-wrap: anywhere; }
 }
+
+.elevation-picker { padding: 16px; border-top: 1px solid var(--border); }
+.elevation-picker h3 { font-size: 1rem; }
+.elevation-picker p, .elevation-picker small { font-size: .8rem; color: #526c77; }
+.elevation-picker svg { width: 100%; display: block; cursor: crosshair; }
+.elevation-picker text { font-size: 18px; fill: #526c77; }
+.elevation-picker input { width: 100%; accent-color: #cb5524; min-height: 32px; }
+.map-marker.draft-station { width: 22px; height: 22px; background: #153f4a; border: 3px solid white; box-shadow: 0 0 0 5px #153f4a44; pointer-events: none; z-index: 5; }

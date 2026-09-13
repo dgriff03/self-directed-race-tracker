@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Header } from "./viewer";
 import RaceMap from "./race-map";
+import ElevationPicker from "./elevation-picker";
 import { api, subscribe } from "../lib/firebase";
 import { parseGpxWithElevation } from "../lib/gpx";
 import {
@@ -62,6 +63,7 @@ export default function Editor({ token }: { token?: string }) {
     [fileName, setFileName] = useState(""),
     [stationName, setStationName] = useState(""),
     [stationKm, setStationKm] = useState(""),
+    [hoverKm, setHoverKm] = useState<number | undefined>(),
     [copied, setCopied] = useState("");
   useEffect(() => {
     if (!token) return;
@@ -125,6 +127,15 @@ export default function Editor({ token }: { token?: string }) {
     locked =
       !!(health?.fix ?? saved?.fix) ||
       (health?.status ?? saved?.status) === "complete";
+  const draftKm =
+    stationKm.trim() && Number.isFinite(Number(stationKm))
+      ? Math.max(0, Math.min(total, milesToKm(Number(stationKm))))
+      : undefined;
+  const selectedKm = locked ? undefined : (hoverKm ?? draftKm);
+  const pickStation = (km: number) => {
+    setStationKm(kmToMiles(km).toFixed(3));
+    setHoverKm(undefined);
+  };
   const preview: Race = {
     id: "preview",
     name,
@@ -569,10 +580,13 @@ export default function Editor({ token }: { token?: string }) {
                           type="number"
                           min="0"
                           max={kmToMiles(total)}
-                          step="0.01"
+                          step="0.001"
                           placeholder="8.50"
                           value={stationKm}
-                          onChange={(e) => setStationKm(e.target.value)}
+                          onChange={(e) => {
+                            setStationKm(e.target.value);
+                            setHoverKm(undefined);
+                          }}
                         />
                       </label>
                     </div>
@@ -619,11 +633,9 @@ export default function Editor({ token }: { token?: string }) {
                 {route.length ? (
                   <RaceMap
                     race={preview}
-                    onPick={
-                      locked
-                        ? undefined
-                        : (km) => setStationKm(kmToMiles(km).toFixed(2))
-                    }
+                    previewKm={selectedKm}
+                    onHover={locked ? undefined : setHoverKm}
+                    onPick={locked ? undefined : pickStation}
                   />
                 ) : (
                   <div className="empty-map">
@@ -633,6 +645,15 @@ export default function Editor({ token }: { token?: string }) {
                       Upload a GPX file to see the route and place aid stations.
                     </p>
                   </div>
+                )}
+                {!!route.length && (
+                  <ElevationPicker
+                    distances={ds}
+                    elevations={elevationsM}
+                    selectedKm={selectedKm}
+                    onHover={setHoverKm}
+                    onPick={locked ? undefined : pickStation}
+                  />
                 )}
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
