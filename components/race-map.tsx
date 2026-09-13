@@ -10,6 +10,7 @@ import {
   type Coordinate,
 } from "../shared/race";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { completedTrack } from "../shared/completed-track";
 import { preferredBasemap, USGS, OSM } from "../shared/map-tiles.mjs";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 export default function RaceMap({
@@ -244,7 +245,7 @@ export default function RaceMap({
       line("course", race.route, "#e5672c", 4);
       line(
         "track",
-        raceRef.current.track.map((p) => [p.lng, p.lat]),
+        completedTrack(raceRef.current),
         "#153f4a",
         5,
       );
@@ -302,11 +303,11 @@ export default function RaceMap({
             properties: {},
             geometry: {
               type: "LineString",
-              coordinates: race.track.map((p) => [p.lng, p.lat]),
+              coordinates: completedTrack(race),
             },
           },
     );
-  }, [ready, race.track]);
+  }, [ready, race.track, race.route, race.distances, race.outAndBack, race.journey]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;

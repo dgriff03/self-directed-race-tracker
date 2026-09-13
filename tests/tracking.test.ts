@@ -1099,3 +1099,27 @@ test("storage separates rounded course and stable keyed breadcrumbs without deri
   assert.deepEqual(loaded.distances, cumulative(course.route));
   assert.equal(loaded.track.length, 1);
 });
+
+test('completed track follows route bends, preserves off-route fixes, and shrinks on rewind', async () => {
+  const { completedTrack } = await import('../shared/completed-track');
+  const r = race();
+  r.route = [[0,0],[0.01,0],[0.01,0.01]];
+  r.distances = cumulative(r.route);
+  r.track = [{lng:0,lat:0,at:1,km:0},{lng:0.01,lat:0.01,at:2,km:r.distances[2]}];
+  assert.deepEqual(completedTrack(r), r.route);
+  r.track[1] = {...r.track[1],lng:0.02};
+  assert.deepEqual(completedTrack(r), [[0,0],[0.02,0.01]]);
+  r.track = r.track.slice(0,1);
+  assert.deepEqual(completedTrack(r), [[0,0]]);
+});
+
+test('completed out-and-back follows only the early turnaround, not the summit', async () => {
+  const { completedTrack } = await import('../shared/completed-track');
+  const r = race();
+  r.route = [[0,0],[0.01,0],[0.02,0],[0.01,0],[0,0]];
+  r.distances = cumulative(r.route);
+  r.outAndBack = true;
+  r.journey = {phase:'returning', peakKm:r.distances[1], peakAt:2, positionKm:0,reverseCount:3,reverseAt:2,turnaroundKm:r.distances[1],turnedAt:2};
+  r.track = [{lng:0,lat:0,at:1,km:0,outboundKm:0},{lng:0,lat:0,at:3,km:r.distances[4],outboundKm:0}];
+  assert.deepEqual(completedTrack(r), [[0,0],[0.01,0],[0,0]]);
+});
