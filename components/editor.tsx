@@ -682,7 +682,7 @@ export default function Editor({ token }: { token?: string }) {
                     onPick={locked ? undefined : pickStation}
                   />
                 )}
-                {!locked && <p className="picker-guidance">{hoverKm !== undefined ? `Preview: ${kmToMiles(hoverKm).toFixed(2)} mi — click to set the aid station distance.` : "Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station."}</p>}
+                {!locked && <p className="picker-guidance">Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station.</p>}
                 <div role="status" aria-live="polite">{saveNotice && <div className="picker-toast"><Check size={20} /><div><strong>Successfully saved</strong><p>Your race settings are saved.</p></div><button type="button" aria-label="Dismiss save confirmation" onClick={() => setSaveNotice(false)}>×</button></div>}{!saveNotice && pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
