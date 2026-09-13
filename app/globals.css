@@ -1077,3 +1077,6 @@ footer {
 .picker-toast p { font-size: .85rem; margin: 5px 0; }
 .picker-toast button { color: white; background: transparent; border: 0; text-decoration: underline; padding: 8px 0; cursor: pointer; }
 .picker-toast > button { margin-left: auto; font-size: 24px; padding: 0 4px; text-decoration: none; }
+
+.feed-failure { background: #fee2e2; color: #991b1b; border: 1px solid #ef4444; }
+.feed-failure strong { font-size: 1.15rem; }

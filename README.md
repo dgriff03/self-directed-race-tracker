@@ -111,9 +111,9 @@ See [System architecture](docs/ARCHITECTURE.md) for lifecycle, security boundari
 
 1. **Set up:** upload a GPX, choose the start time, enter a Garmin MapShare or KML feed URL, and place aid stations by map click or route distance. Each visit to a repeated station can have its own route distance. The finish is added automatically.
 2. **Share:** save the private edit link and give crews the independent viewer link. Before the start, viewers see the scheduled start time.
-3. **Track:** the server polls Garmin every five minutes, validates GPS timestamps and plausible route progress, and writes a health heartbeat even when no new position arrives. With a ten-minute device interval, latency can approach fifteen minutes.
+3. **Track:** the server wakes every minute, requests Garmin near expected deliveries, validates GPS timestamps and plausible route progress, and writes a heartbeat even without a Garmin request. Satellite delivery adds variable latency.
 4. **Estimate:** distance and ascent use confirmed progress. ETAs use a stabilized 40-minute pace window when possible, otherwise overall pace. Recent-pace estimates add ten minutes per intermediate station; overall pace already includes stops and receives no extra allowance. A station is not treated as reached merely because the runner approaches it.
-5. **Record:** crossings between confirmed fixes produce explicitly estimated splits. Suspicious jumps wait for corroboration; consistent switchback movement can use the previously accepted segment. Overdue ETAs retain their date/time and show minutes overdue.
+5. **Record:** crossings between confirmed fixes produce explicitly estimated splits. Suspicious jumps wait for corroboration; consistent switchback movement can use the previously accepted segment. Estimated arrivals that pass without a confirming GPS update show “Likely at · awaiting GPS.”
 6. **Finish:** automatic or manual completion stops polling and preserves the viewer URL as an archive. After 24 hours without a new fix since start/resume, polling pauses without claiming a finish; the organizer can resume or replace the feed.
 
 ### Offline and maps
@@ -179,3 +179,14 @@ Out-and-back aid stations now include automatic return visits with independent E
 **Starting early:** Polling opens one hour early. Positions within 50 meters of the start are kept as timing anchors without starting the race clock. An accepted departure before the scheduled time starts the clock at the last such position (or the departure timestamp if none exists). This is approximate with sparse GPS and subject to GPS drift. Late departures retain scheduled-start timing. Existing started races are not retimed.
 
 Use `nvm use` to select the Node version in `.nvmrc` before installing or building. Local scratch courses under `public/courses/` are explicitly excluded from Firebase Hosting; the untracked Longs conversion script is not part of the supported application tooling.
+
+
+## Delivery timing and terrain ETAs
+
+The scheduler wakes every minute and writes a heartbeat independently of Garmin requests. Polls are deferred until one minute before the expected delivery, based on recent GPS timestamp gaps and observed delivery gaps (so batched five-minute logs need not imply five-minute transmissions). Missing expected messages retry each minute, easing to five minutes after 15 minutes; failures retry after one minute. No-fix feeds retry every five minutes. Completed jobs remain disabled. `lastLocationReceivedAt` is receipt time, distinct from `lastFeedPointAt` (device timestamp). Expectations are estimates, not promises. Legacy records without receipt metadata explicitly show the GPS timestamp instead.
+
+Feed failures show a red banner. Sanitized failure reasons and the last failed request time are retained in the private job and logged without the private feed URL; successful recovery clears the public banner. Historical failures before this change were swallowed and cannot reliably be diagnosed retrospectively.
+
+Every remaining station gets its own ETA. With GPX elevation, recent observed effort is calibrated against grade-weighted route distance and applied across the remaining profile. The running energy-cost curve comes from [Minetti et al. (2002)](https://doi.org/10.1152/japplphysiol.01177.2001), with a conservative downhill floor, bounded grade and at least 50m grade smoothing. It cannot infer technical footing, surface conditions or weather from GPX elevations. Missing elevation falls back to ordinary pace. Elapsed wall time alone never labels a station overdue; an estimated arrival in the past is “Likely at · awaiting GPS.”
+
+A reversal close to an out-and-back midpoint may infer visiting the tip: within 75m, or within both 500m and 10% of outbound distance when recent pace and the gap make the full visit plausible. The estimated turn timestamp lies between observed points; stations within 150m of the midpoint share the inferred visit. Substantial early returns retain the existing corroboration rules. Raw GPS coordinates remain unchanged.

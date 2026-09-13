@@ -14,6 +14,7 @@ import {
   type Race,
 } from "../../shared/race.js";
 import { requestIp } from "./request-ip.js";
+import { feedUpdate } from "../../shared/polling.js";
 import { fetchFeed, validateFeed } from "./feed.js";
 initializeApp();
 const db = getDatabase();
@@ -386,7 +387,7 @@ export const api = onRequest(
 );
 export const pollGarmin = onSchedule(
   {
-    schedule: "every 5 minutes",
+    schedule: "every 1 minutes",
     region: "us-central1",
     timeoutSeconds: 120,
     maxInstances: 1,
@@ -452,8 +453,19 @@ export const pollGarmin = onSchedule(
                 await jobRef.update({ active: false });
                 return;
               }
+              if ((race.nextPollAt ?? 0) > now) {
+                await ref.transaction((raw) =>
+                  !raw
+                    ? raw
+                    : raw.status === "complete"
+                      ? undefined
+                      : { ...raw, heartbeatAt: now },
+                );
+                return;
+              }
               let fixes: any[] = [];
               let ok = true;
+              let feedError: string | null = null;
               try {
                 fixes = await fetchFeed(
                   claim.snapshot.val().feedUrl,
@@ -462,17 +474,45 @@ export const pollGarmin = onSchedule(
                     (race.fix?.at ?? race.startAt - EARLY_START_MS) - 1000,
                   ),
                 );
-              } catch {
+              } catch (error) {
                 ok = false;
+                feedError =
+                  error instanceof Error &&
+                  (/^Garmin HTTP \d{3}$/.test(error.message) || ["Garmin feed exceeded 5 MB", "Garmin returned an empty feed", "Garmin returned invalid KML"].includes(error.message))
+                    ? error.message
+                    : error instanceof Error && error.name === "TimeoutError"
+                      ? "Garmin request timed out"
+                      : "Garmin feed could not be read";
+                console.warn("Garmin poll failed", {
+                  raceId: id,
+                  reason: feedError,
+                });
               }
+              if (!ok)
+                await jobRef
+                  .child("lastFeedFailure")
+                  .set({ at: now, reason: feedError });
+              const timing = feedUpdate(race, fixes, now, ok);
+              await jobRef
+                .child("lastPollDiagnostic")
+                .set({
+                  at: now,
+                  ok,
+                  pointCount: fixes.length,
+                  newestPointAt: timing.lastFeedPointAt,
+                  error: feedError,
+                });
               await ref.transaction((raw) => {
                 if (!raw) return raw;
                 if (raw.status === "complete") return;
                 const current = normalizeRace(raw);
+                if (current.revision !== race.revision) return;
                 if (current.startAt - EARLY_START_MS > Date.now()) return;
                 const updated = applyFixes(current, fixes);
                 return {
                   ...updated,
+                  ...timing,
+                  feedError,
                   stations: updated.stations.filter((s) => !s.returnOf),
                   status:
                     updated.status === "scheduled" &&

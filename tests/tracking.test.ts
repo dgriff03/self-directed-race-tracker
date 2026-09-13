@@ -942,3 +942,67 @@ test("dense replay backward checkpoint seeks match a fresh reconstruction", asyn
     assert.deepEqual(result, expected);
   }
 });
+
+test("near-tip reversal infers a plausible turnaround visit but not a distant early retreat", () => {
+  const r = race();
+  r.outAndBack = true;
+  r.route = [
+    [0, 0],
+    [0.04, 0],
+    [0, 0],
+  ];
+  r.distances = cumulative(r.route);
+  const half = r.distances.at(-1)! / 2;
+  r.stations = [
+    { id: "tip", name: "Turn", km: half + 0.016 },
+    { id: "finish", name: "Finish", km: half * 2 },
+  ];
+  const points = [0, 0.01, 0.02, 0.03, 0.0398, 0.03].map((lng, i) => ({
+    lng,
+    lat: 0,
+    at: r.startAt + i * 600000,
+  }));
+  const out = applyFixes(r, points, points.at(-1)!.at);
+  assert.equal(out.journey?.phase, "returning");
+  assert.equal(out.journey?.turnaroundKm, half);
+  assert.equal(out.splits.filter((s) => s.stationId === "tip").length, 1);
+  const turn = out.splits.find((s) => s.stationId === "tip")!;
+  assert.ok(turn.at >= points[4].at && turn.at <= points[5].at);
+  assert.ok(calculateEta(out, half * 2, "finish", points.at(-1)!.at));
+});
+
+test("terrain ETA calibrates effort and accounts for remaining climbs and descents", async () => {
+  const { terrainTravelMs, gradeCost } = await import("../shared/terrain");
+  const r = race();
+  r.distances = [0, 1, 2];
+  r.elevationsM = [0, 0, 100];
+  r.progressKm = 1;
+  r.fix = { lng: 0.01, lat: 0, at: r.startAt + 600000, km: 1 };
+  r.track = [{ lng: 0, lat: 0, at: r.startAt, km: 0 }, r.fix];
+  assert.ok(terrainTravelMs(r, 2)! > 600000);
+  r.elevationsM = [100, 100, 0];
+  assert.ok(terrainTravelMs(r, 2)! < 600000);
+  r.elevationsM = [0, 0, 0];
+  assert.equal(terrainTravelMs(r, 2), 600000);
+  assert.ok(gradeCost(-0.4) >= 0.75);
+  assert.ok(gradeCost(0.4) > 1);
+  r.elevationsM = null;
+  assert.equal(terrainTravelMs(r, 2), null);
+});
+
+test("feed timing learns ten-minute transmissions, skips early polling and retries missing deliveries", async () => {
+  const { feedUpdate } = await import("../shared/polling");
+  let r = race();
+  const t = r.startAt + 3600000;
+  const fixes = [0, 1, 2].map((i) => ({ lng: 0, lat: 0, at: t + i * 600000 }));
+  const timing = feedUpdate(r, fixes, t + 1200000, true);
+  assert.equal(timing.feedCadenceMs, 600000);
+  assert.equal(timing.nextPollAt, t + 1740000);
+  assert.equal(timing.nextUpdateExpectedAt, t + 1800000);
+  r = { ...r, ...timing };
+  const unchanged = feedUpdate(r, fixes, t + 1800000, true);
+  assert.equal(unchanged.lastLocationReceivedAt, t + 1200000);
+  assert.equal(unchanged.nextPollAt, t + 1860000);
+  assert.equal(feedUpdate(r, [], t + 1800000, false).nextPollAt, t + 1860000);
+  assert.equal(feedUpdate(r, fixes, t + 3600000, true).nextPollAt, t + 3900000);
+});

@@ -1,3 +1,4 @@
+import { terrainTravelMs } from "./terrain.js";
 export type Coordinate = [number, number];
 export type Station = {
   id: string;
@@ -31,6 +32,15 @@ export type Race = {
   splits: Split[];
   heartbeatAt: number | null;
   feedOk: boolean | null;
+  lastLocationReceivedAt?: number | null;
+  lastFeedPointAt?: number | null;
+  nextUpdateExpectedAt?: number | null;
+  nextPollAt?: number;
+  lastPollAt?: number;
+  feedCadenceMs?: number;
+  feedPointTimes?: number[];
+  feedDeliveryGaps?: number[];
+  feedError?: string | null;
   finishedAt: number | null;
   revision: number;
   track: Fix[];
@@ -45,6 +55,7 @@ export type Race = {
     reverseAt: number;
     turnaroundKm?: number;
     turnedAt?: number;
+    inferredTurnaround?: boolean;
     returnSamples?: { km: number; at: number }[];
     rearmKm?: number;
   } | null;
@@ -240,7 +251,8 @@ export function calculateEta(
   if (!(effectivePace > 0)) return null;
 
   const distKm = targetStationKm - r.progressKm;
-  const travelTimeMs = (distKm / effectivePace) * 3600000;
+  const travelTimeMs =
+    terrainTravelMs(r, targetStationKm) ?? (distKm / effectivePace) * 3600000;
 
   const intermediateStations = r.stations.filter((s) => {
     if (
@@ -678,7 +690,16 @@ function applyOutAndBackFix(
       j.reverseCount = 0;
       j.reverseAt = 0;
     }
-    const normalReturn = j.peakKm >= half - 0.075 && km < j.peakKm - 0.05;
+    const missingToTurn = half - j.peakKm;
+    const plausibleViaTurn =
+      previous &&
+      hours > 0 &&
+      half - previousKm + half - km <=
+        Math.max(1, paceEstimate(r).kmh) * hours * 1.5;
+    const normalReturn =
+      km < j.peakKm - 0.05 &&
+      (missingToTurn <= 0.075 ||
+        (missingToTurn <= Math.min(0.5, half * 0.1) && plausibleViaTurn));
     const earlyReturn =
       j.rearmKm === undefined &&
       j.peakKm >= 0.5 &&
@@ -688,9 +709,34 @@ function applyOutAndBackFix(
       fix.at - j.peakAt >= 600000;
     if (normalReturn || earlyReturn) {
       j.phase = "returning";
-      j.turnaroundKm = j.peakKm;
+      if (normalReturn) {
+        const path = Math.max(0.001, half - previousKm + half - km);
+        const turnAt = Math.round(
+          (previous?.at ?? j.peakAt) +
+            ((fix.at - (previous?.at ?? j.peakAt)) *
+              Math.max(0, half - previousKm)) /
+              path,
+        );
+        j.turnaroundKm = half;
+        j.inferredTurnaround = true;
+        j.peakKm = half;
+        j.peakAt = turnAt;
+        // A station placed near the tip represents that single turnaround visit.
+        for (const station of r.stations) {
+          if (
+            Math.abs(station.km - half) <= 0.15 &&
+            station.id !== "finish" &&
+            !r.splits.some((s) => s.stationId === station.id)
+          )
+            r.splits.push({
+              stationId: station.id,
+              at: turnAt,
+              estimated: true,
+            });
+        }
+      } else j.turnaroundKm = j.peakKm;
       j.turnedAt = fix.at;
-      j.returnSamples = [{ km: j.peakKm, at: j.peakAt }];
+      j.returnSamples = [{ km: j.turnaroundKm, at: j.peakAt }];
     }
   }
   // Use current position on the return so a brief uphill backtrack updates the ETA.

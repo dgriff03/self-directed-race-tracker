@@ -2,7 +2,10 @@ import { parseKml } from "../../shared/kml.js";
 export { parseKml } from "../../shared/kml.js";
 export function validateFeed(raw: string) {
   const url = new URL(raw);
-  if (["share.garmin.com", "share.inreach.garmin.com"].includes(url.hostname) && /^\/[^/]+\/?$/.test(url.pathname)) {
+  if (
+    ["share.garmin.com", "share.inreach.garmin.com"].includes(url.hostname) &&
+    /^\/[^/]+\/?$/.test(url.pathname)
+  ) {
     url.pathname = "/Feed/Share/" + url.pathname.split("/")[1];
   }
   if (
@@ -32,13 +35,11 @@ export async function fetchFeed(raw: string, since: number) {
       Accept: "application/vnd.google-earth.kml+xml, application/xml",
     },
   });
-  if (
-    !response.ok ||
-    Number(response.headers.get("content-length")) > 5_000_000
-  )
-    throw new Error("Feed unavailable");
+  if (!response.ok) throw new Error(`Garmin HTTP ${response.status}`);
+  if (Number(response.headers.get("content-length")) > 5_000_000)
+    throw new Error("Garmin feed exceeded 5 MB");
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Empty feed");
+  if (!reader) throw new Error("Garmin returned an empty feed");
   const decoder = new TextDecoder();
   let xml = "",
     bytes = 0;
@@ -47,11 +48,11 @@ export async function fetchFeed(raw: string, since: number) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
-      if (bytes > 5_000_000) throw new Error("Feed too large");
+      if (bytes > 5_000_000) throw new Error("Garmin feed exceeded 5 MB");
       xml += decoder.decode(value, { stream: true });
     }
     xml += decoder.decode();
-    return parseKml(xml);
+    try { return parseKml(xml); } catch { throw new Error("Garmin returned invalid KML"); }
   } finally {
     await reader.cancel();
   }

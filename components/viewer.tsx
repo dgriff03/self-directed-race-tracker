@@ -204,13 +204,14 @@ export default function Viewer({ id }: { id: string }) {
     next = race.stations.find(
       (s) =>
         !stationSkipped(race, s.id) &&
+        s.km > race.progressKm &&
         !race.splits.some((p) => p.stationId === s.id),
     );
   const vert = journeyElevation(race);
   const complete = race.status === "complete",
     scheduled = !complete && !race.fix && now < race.startAt;
-  const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 750000);
-  const healthy = connected && online && !stale && race.feedOk === true;
+  const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 900000);
+
   const effectiveMoveSpeed = rolling > 0 ? rolling : overallSpeed;
   const estimatedKm =
     estimate && race.fix && !complete && !scheduled && overallSpeed > 0
@@ -273,10 +274,20 @@ export default function Viewer({ id }: { id: string }) {
           can resume tracking from the edit link.
         </div>
       )}
+      {race.feedOk === false && !complete && (
+        <div className="notice feed-failure" role="alert">
+          <strong>Garmin feed unavailable</strong>
+          <p>
+            {race.feedError ||
+              "We could not read the Garmin feed. Retrying automatically; the last recorded position remains visible."}
+          </p>
+        </div>
+      )}
       {scheduled && (
         <div className="notice">
-          Event starting at {new Date(race.startAt).toLocaleString([], { timeZoneName: "short" })}. Tracking
-          can begin automatically up to one hour early.
+          Event starting at{" "}
+          {new Date(race.startAt).toLocaleString([], { timeZoneName: "short" })}
+          . Tracking can begin automatically up to one hour early.
         </div>
       )}
       {!online && (
@@ -405,39 +416,23 @@ export default function Viewer({ id }: { id: string }) {
           </div>
           <RaceMap race={race} estimatedKm={estimatedKm} />
           <div className="map-bottom">
-            <div>
-              <span
-                className={`health-dot ${healthy || complete ? "ok" : ""}`}
-              />
-              <strong>
-                {demo
-                  ? "Demo feed"
-                  : complete
-                    ? "Race complete"
-                    : scheduled
-                      ? "Waiting for start"
-                      : !online
-                        ? "Offline"
-                        : !connected
-                          ? "Reconnecting"
-                          : stale
-                            ? "Waiting for health ping"
-                            : race.feedOk
-                              ? "Feed healthy"
-                              : "Garmin feed unavailable"}
-              </strong>
-              <span className="muted">
-                {race.heartbeatAt
-                  ? `Health checked ${time(race.heartbeatAt)}`
-                  : "No health ping yet"}
-              </span>
-            </div>
+            {stale && !complete && race.heartbeatAt && (
+              <p>Last connected to server at {time(race.heartbeatAt)}</p>
+            )}
             <p>
-              Last updated at{" "}
-              {race.fix
-                ? new Date(race.fix.at).toLocaleString([], { timeZoneName: "short" })
-                : "— awaiting first GPS position"}
+              Last location update received at{" "}
+              {race.lastLocationReceivedAt
+                ? time(race.lastLocationReceivedAt)
+                : race.fix
+                  ? `Unknown receipt time; GPS recorded at ${time(race.fix.at)}`
+                  : "— awaiting first GPS position"}
             </p>
+            {!complete && race.nextUpdateExpectedAt && (
+              <p>
+                Next update expected at {time(race.nextUpdateExpectedAt)} ·
+                estimated
+              </p>
+            )}
           </div>
         </div>
         <aside className="station-panel">
@@ -526,7 +521,7 @@ export default function Viewer({ id }: { id: string }) {
                           : complete
                             ? "Not recorded"
                             : arrival && arrival < now
-                              ? `Overdue by ${Math.max(1, Math.floor((now - arrival) / 60000))} min`
+                              ? "Likely at · awaiting GPS"
                               : "ETA"}
                     </span>
                   </div>
@@ -535,10 +530,12 @@ export default function Viewer({ id }: { id: string }) {
             })}
           </div>
           <p className="panel-note">
-            Crossing times are interpolated between GPS updates. Arrival
-            estimates use recent pace when available, with a 10-minute allowance
-            per intermediate aid station. Overall-pace estimates already include
-            stops and add no extra allowance.
+            Crossing times are interpolated between GPS updates; a plausible
+            visit near the turnaround may be inferred. Arrival estimates use
+            recent grade-adjusted pace and the remaining elevation profile when
+            available, with a 10-minute allowance per intermediate aid station.
+            Overall-pace estimates already include stops and add no extra
+            allowance. Terrain estimates cannot account for footing or weather.
           </p>
         </aside>
       </section>
@@ -548,9 +545,7 @@ export default function Viewer({ id }: { id: string }) {
           <div>
             <h3>A clear picture between updates</h3>
             <p>
-              Garmin sends positions at its configured interval. A separate feed
-              health check runs every five minutes. With a ten-minute device
-              interval, a position can take roughly fifteen minutes to appear.
+              Garmin sends positions at its configured interval. We learn the message spacing and check near the next expected delivery. Satellite delays can change when a position arrives.
             </p>
           </div>
         </div>
