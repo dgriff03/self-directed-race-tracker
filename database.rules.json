@@ -30,7 +30,8 @@
     "slugs": {
       "$slug": {
         ".read": "$slug.matches(/^[a-z][a-z0-9-]{2,39}$/)"
-      }
+      },
+      ".indexOn": ".value"
     }
   }
 }

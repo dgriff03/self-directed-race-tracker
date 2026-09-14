@@ -73,6 +73,7 @@ export async function subscribe(
   onRace: (r: Race | null) => void,
   onConnection: (connected: boolean) => void,
   onError: (e: Error) => void,
+  cachedCanonicalId?: string,
 ) {
   const c = await config();
   const existing = getApps()[0];
@@ -80,7 +81,9 @@ export async function subscribe(
   const db = getDatabase(app);
   if (c.emulator && !existing) connectDatabaseEmulator(db, "127.0.0.1", 9000);
   const reference = raceReference(id);
-  if (!UUID_PATTERN.test(reference)) {
+  if (cachedCanonicalId && UUID_PATTERN.test(cachedCanonicalId)) {
+    id = cachedCanonicalId;
+  } else if (!UUID_PATTERN.test(reference)) {
     id = (await get(ref(db, `slugs/${reference}`))).val();
     if (!id) {
       onRace(null);
@@ -237,4 +240,12 @@ export async function readPublicRace(input: string): Promise<Race> {
   ]);
   if (!course.exists()) throw Error("Event course is unavailable.");
   return hydrateRace(raw, course.val(), Object.values(track.val() ?? {}));
+}
+
+export async function slugOwner(slug: string): Promise<string | null> {
+  const c = await config();
+  const existing = getApps()[0];
+  const db = getDatabase(existing ?? initializeApp(c));
+  if (c.emulator && !existing) connectDatabaseEmulator(db, "127.0.0.1", 9000);
+  return (await get(ref(db, `slugs/${raceReference(slug)}`))).val();
 }

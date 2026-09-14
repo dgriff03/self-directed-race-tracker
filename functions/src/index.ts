@@ -416,7 +416,7 @@ export const api = onRequest(
           error instanceof z.ZodError
             ? "Please check the race fields."
             : error instanceof Error &&
-                /Garmin|route|station|feed is required|Unknown action|That race slug is already taken/i.test(
+                /Garmin|route|station|feed is required|Unknown action|That race slug is already taken|A race can reserve at most five slugs/i.test(
                   error.message,
                 )
               ? error.message

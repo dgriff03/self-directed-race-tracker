@@ -29,6 +29,8 @@ test("viewer capability cannot enumerate races, write records, or read edit cred
     await assertFails(get(ref(db, "races")));
     await assertSucceeds(get(ref(db, "slugs/highline-run")));
     await assertFails(get(ref(db, "slugs")));
+    await assertFails(get(ref(db, `slugClaims/${id}`)));
+    await assertFails(set(ref(db, `slugClaims/${id}/extra`),true));
     await assertFails(set(ref(db, "slugs/highline-run"),id));
     for(const kind of ["courses","tracks"]) {
       await assertSucceeds(get(ref(db,`${kind}/${id}`)));

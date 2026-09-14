@@ -95,40 +95,44 @@ export default function Viewer({ id }: { id: string }) {
     }
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
-    let receivedLive = false;
     loadRace(id)
+      .catch(() => null)
       .then((cached) => {
-        if (!stopped && !receivedLive && cached) setRace(normalize(cached));
-      })
-      .catch(() => {});
-    subscribe(
-      id,
-      (r) => {
         if (stopped) return;
-        receivedLive = true;
-        if (!r) {
-          setRace(null);
-          setError(
-            "This race could not be found. Check the complete viewer link.",
-          );
-          return;
-        }
-        setRace(r);
-        setError("");
-        saveRace(r, id).catch(() =>
-          setError(
-            "Offline saving is unavailable on this device. Keep this page open to retain the current race.",
-          ),
-        );
-      },
-      setConnected,
-      (e) => setError(e.message),
-    )
-      .then((stop) => {
-        if (stopped) stop();
-        else unsubscribe = stop;
-      })
-      .catch((e) => setError(e.message));
+        if (cached) setRace(normalize(cached));
+        subscribe(
+          id,
+          (r) => {
+            if (stopped) return;
+            if (!r) {
+              setRace(null);
+              setError(
+                "This race could not be found. Check the complete viewer link.",
+              );
+              return;
+            }
+            setRace(r);
+            setError("");
+            saveRace(r, id).catch(() =>
+              setError(
+                "Offline saving is unavailable on this device. Keep this page open to retain the current race.",
+              ),
+            );
+          },
+          setConnected,
+          (e) => {
+            if (!stopped) setError(e.message);
+          },
+          cached?.id,
+        )
+          .then((stop) => {
+            if (stopped) stop();
+            else unsubscribe = stop;
+          })
+          .catch((e) => {
+            if (!stopped) setError(e.message);
+          });
+      });
     return () => {
       stopped = true;
       unsubscribe?.();

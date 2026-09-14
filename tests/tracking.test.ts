@@ -1273,3 +1273,8 @@ test('race references normalize slugs and URLs while reserving SMS commands', as
  const id='adc8d7fa-9167-4763-adda-73defd9c46f5';
  assert.equal(validSlug(id),false); assert.equal(raceReference(id),id);
  });
+
+ test('Twilio-intercepted keywords cannot become slugs', async()=> {
+ const {validSlug,raceReference}=await import('../shared/race-reference');
+ for(const keyword of ['yes','unstop','info']){assert.equal(validSlug(keyword),false);assert.throws(()=>raceReference(keyword.toUpperCase()));}
+ });

@@ -1,4 +1,5 @@
-"use client";
+import { validSlug } from "../shared/race-reference";
+("use client");
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Upload,
@@ -14,7 +15,7 @@ import {
 import { Header } from "./viewer";
 import RaceMap from "./race-map";
 import ElevationPicker from "./elevation-picker";
-import { api, subscribe } from "../lib/firebase";
+import { api, subscribe, slugOwner } from "../lib/firebase";
 import { parseGpxWithElevation } from "../lib/gpx";
 import {
   validOutAndBack,
@@ -50,6 +51,7 @@ export default function Editor({ token }: { token?: string }) {
   const [diagnostic, setDiagnostic] = useState("");
   const [testing, setTesting] = useState(false);
   const [slug, setSlug] = useState("");
+  const [slugStatus, setSlugStatus] = useState("");
   const [name, setName] = useState(""),
     [start, setStart] = useState(""),
     [feed, setFeed] = useState(""),
@@ -68,6 +70,44 @@ export default function Editor({ token }: { token?: string }) {
     [pickNotice, setPickNotice] = useState(""),
     [saveNotice, setSaveNotice] = useState(false),
     [copied, setCopied] = useState("");
+  useEffect(() => {
+    const value = slug.trim().toLowerCase();
+    let active = true;
+    if (!value) {
+      setSlugStatus("");
+      return;
+    }
+    if (!validSlug(value)) {
+      setSlugStatus(
+        "Use 3–40 letters, numbers and hyphens; SMS keywords and UUIDs are reserved.",
+      );
+      return;
+    }
+    setSlugStatus("Checking availability…");
+    const timer = setTimeout(() => {
+      slugOwner(value)
+        .then((owner) => {
+          if (active)
+            setSlugStatus(
+              !owner
+                ? "Available — reserved when you save."
+                : owner === saved?.id
+                  ? "Already reserved for this race."
+                  : "Taken — choose another slug.",
+            );
+        })
+        .catch(() => {
+          if (active)
+            setSlugStatus(
+              "Could not check availability. Saving will check again.",
+            );
+        });
+    }, 350);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [slug, saved?.id]);
   useEffect(() => {
     if (!token) return;
     api("/edit", "GET", undefined, token)
@@ -347,8 +387,12 @@ export default function Editor({ token }: { token?: string }) {
                     onChange={(e) => setSlug(e.target.value.toLowerCase())}
                     placeholder="highline-2026"
                   />
+                  <span role="status" aria-live="polite">
+                    {slugStatus}
+                  </span>
                   <small>
-                    3–40 letters, numbers or hyphens, starting with a letter.
+                    At most five slugs per race, including old names. 3–40
+                    letters, numbers or hyphens, starting with a letter.
                     Uniqueness is checked when you save. Slugs are easier to
                     guess than UUID links; old slugs stay reserved for this
                     race.

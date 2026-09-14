@@ -115,12 +115,12 @@ export const sms = onRequest(
       if (!UUID_PATTERN.test(id))
         id = (await db.ref(`slugs/${id}`).get()).val();
       if (!id) {
-        reply("Race not found. Send a valid slug, viewer link or UUID.");
+        reply("Race not found. Send a race slug, viewer link or UUID, or text HELP for instructions.");
         return;
       }
       const raw = (await db.ref(`races/${id}`).get()).val();
       if (!raw) {
-        reply("Race not found. Send a valid Milemark viewer link or UUID.");
+        reply("Race not found. Send a race slug, viewer link or UUID, or text HELP for instructions.");
         return;
       }
       const race = await loadRace(raw);
