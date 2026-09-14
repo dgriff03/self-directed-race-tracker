@@ -207,6 +207,11 @@ export default function Viewer({ id }: { id: string }) {
         s.km > race.progressKm &&
         !race.splits.some((p) => p.stationId === s.id),
     );
+  const nextEta = next ? calculateEta(race, next.km, next.id, now, {pace: etaBase!.pace, dwell}) : null;
+  const directions = (km: number) => {
+    const [lng, lat] = atDistance(race.route, race.distances, km);
+    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  };
   const vert = journeyElevation(race);
   const complete = race.status === "complete",
     scheduled = !complete && !race.fix && now < race.startAt;
@@ -315,6 +320,11 @@ export default function Viewer({ id }: { id: string }) {
           mi.
         </div>
       )}
+      {!complete && next && <section className="form-card" style={{marginBottom:16}}>
+        <strong>Next: {next.name} · {nextEta ? `${nextEta < now ? "Likely at" : "ETA"} ${time(nextEta)}` : "ETA awaiting GPS pace"}</strong>
+        <p><a className="button secondary" href={directions(next.km)} target="_blank" rel="noopener noreferrer">Drive to {next.name}</a></p>
+        <small>Directions target the aid location. Check road access and parking before driving.</small>
+      </section>}
       <section className="stats">
         <div>
           <span>DISTANCE COVERED</span>
@@ -357,12 +367,12 @@ export default function Viewer({ id }: { id: string }) {
           <span>{complete ? "TOTAL TIME" : "ELAPSED TIME"}</span>
           <strong>
             {elapsed(
-              (complete ? (race.finishedAt ?? now) : now) - raceStart(race),
+              !race.fix && !complete ? 0 : (complete ? (race.finishedAt ?? now) : now) - raceStart(race),
             )}
           </strong>
           <p>
-            {scheduled
-              ? "Waiting for the start"
+            {!race.fix && !complete
+              ? "Waiting for tracker start"
               : complete
                 ? "Race archived"
                 : "Since the start"}
@@ -488,6 +498,7 @@ export default function Viewer({ id }: { id: string }) {
                   </span>
                   <div>
                     <h3>{s.name}</h3>
+                    <a href={directions(s.km)} target="_blank" rel="noopener noreferrer">Driving directions</a>
                     <p>
                       {kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi{" "}
                       {isDwell && (

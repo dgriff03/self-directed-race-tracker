@@ -1,3 +1,4 @@
+import { readPublicRace } from "../lib/firebase";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Header } from "./viewer";
 import RaceMap from "./race-map";
@@ -34,6 +35,9 @@ const localDate = (n: number) =>
     .toISOString()
     .slice(0, 19);
 export default function Replay() {
+  const [eventId, setEventId] = useState("");
+  const [loadingEvent, setLoadingEvent] = useState(false);
+  const eventRequest = useRef(0);
   const [usingDemo, setUsingDemo] = useState(false);
   const [outAndBack, setOutAndBack] = useState(false);
   const [course, setCourse] = useState<ReturnType<
@@ -123,6 +127,25 @@ export default function Replay() {
         )
       : state;
   }, [engine, cursor, usingDemo, lastPoint]);
+  async function loadEvent() {
+    const request = ++eventRequest.current;
+    setLoadingEvent(true); setError(""); setPlaying(false);
+    try {
+      const event = await readPublicRace(eventId.trim());
+      if (request !== eventRequest.current) return;
+      if (!event.track.length) throw Error("This event has no recorded locations yet.");
+      uploads.current.gpx++; uploads.current.kml++;
+      uploadController.current?.abort(); setReadingKml(false);
+      setUsingDemo(false);
+      setCourse({route:event.route, elevationsM:event.elevationsM ?? null});
+      setPoints(event.track.map(({lng,lat,at}) => ({lng,lat,at})).sort((a,b)=>a.at-b.at));
+      setStations(event.stations.filter(s=>s.id !== "finish" && !s.returnOf));
+      setStart(event.startAt); setCursor(Math.min(event.startAt,event.track[0].at)-1000);
+      setOutAndBack(!!event.outAndBack);
+      setGpxName(event.name); setKmlName(`${event.track.length} saved GPS locations`);
+    } catch(e) { if(request === eventRequest.current) setError(e instanceof Error ? e.message : "Could not load event."); }
+    finally { if(request === eventRequest.current) setLoadingEvent(false); }
+  }
   const useDemo = () => {
     uploads.current.gpx++;
     uploads.current.kml++;
@@ -160,6 +183,7 @@ export default function Replay() {
   async function upload(kind: "gpx" | "kml", file?: File) {
     if (!file) return;
     setUsingDemo(false);
+    eventRequest.current++; setLoadingEvent(false);
     const version = ++uploads.current[kind];
     let controller: AbortController | undefined;
     if (kind === "kml") {
@@ -216,7 +240,12 @@ export default function Replay() {
         </p>
       </section>
       <section className="replay-controls form-card">
-        <button type="button" className="button secondary" onClick={useDemo}>
+        <label>Replay an event
+          <input value={eventId} onChange={e=>setEventId(e.target.value)} placeholder="Event UUID" />
+        </label>
+        <button type="button" className="button" disabled={loadingEvent || !eventId.trim()} onClick={()=>void loadEvent()}>{loadingEvent ? "Loading event…" : "Load event"}</button>
+        <p className="field-note">Uses the saved course, aid stations, and up to 500 retained GPS locations. Recalculates playback with current tracking logic; does not fetch Garmin or change the event.</p>
+        <button type="button" className="button secondary" disabled={loadingEvent} onClick={useDemo}>
           Use demo data
         </button>
         {usingDemo && (

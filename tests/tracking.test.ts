@@ -46,7 +46,7 @@ function race(): Race {
 test("sparse fixes interpolate aid splits and ignore duplicates/out-of-order data", () => {
   const r = race();
   const fix = { lng: 0.01, lat: 0, at: r.startAt + 1800000 };
-  const result = applyFixes(r, [fix]);
+  const result = applyFixes(r, [{lng:0,lat:0,at:r.startAt}, fix]);
   assert.equal(result.splits.length, 1);
   assert.ok(
     Math.abs(
@@ -911,7 +911,7 @@ test("early start window accepts boundary fixes and uses actual time in both mod
       [{ lng: 0, lat: 0, at: r.startAt + 600000 }],
       r.startAt + 600000,
     );
-    assert.equal(late.actualStartAt, undefined);
+    assert.equal(late.actualStartAt, r.startAt + 600000);
   }
 });
 
@@ -1122,4 +1122,20 @@ test('completed out-and-back follows only the early turnaround, not the summit',
   r.journey = {phase:'returning', peakKm:r.distances[1], peakAt:2, positionKm:0,reverseCount:3,reverseAt:2,turnaroundKm:r.distances[1],turnedAt:2};
   r.track = [{lng:0,lat:0,at:1,km:0,outboundKm:0},{lng:0,lat:0,at:3,km:r.distances[4],outboundKm:0}];
   assert.deepEqual(completedTrack(r), [[0,0],[0.01,0],[0,0]]);
+});
+
+test('late tracker start anchors elapsed time and pace in both route modes', () => {
+  for (const outAndBack of [false, true]) {
+    const r = race();
+    if(outAndBack) {
+      r.route = [[0,0],[0.01,0],[0.02,0],[0.01,0],[0,0]];
+      r.distances = cumulative(r.route);
+      r.outAndBack = true;
+    }
+    const actual = r.startAt + 30*60000;
+    const started = applyFixes(r,[{lng:0,lat:0,at:actual},{lng:0.005,lat:0,at:actual+600000}],actual+600000);
+    assert.equal(started.actualStartAt,actual);
+    assert.equal(started.startAt,r.startAt);
+    assert.ok(Math.abs(speed(started) - started.progressKm*6)<0.001);
+  }
 });

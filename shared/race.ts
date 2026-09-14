@@ -305,7 +305,7 @@ function waitingAtStart(r: Race, fix: Fix): boolean {
   return false;
 }
 function recordDeparture(r: Race, fix: Fix) {
-  if (!r.fix && fix.at < r.startAt)
+  if (!r.fix)
     r.actualStartAt = r.startLineFix?.at ?? fix.at;
 }
 

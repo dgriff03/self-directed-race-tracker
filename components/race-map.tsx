@@ -33,6 +33,21 @@ export default function RaceMap({
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const estimateRef = useRef<import("maplibre-gl").Marker | null>(null);
   const routeKey = useMemo(() => JSON.stringify(race.route), [race.route]);
+  // Cancel browser panning before Firefox moves its collapsing toolbar. A single
+  // finger remains available for page scrolling with cooperative map gestures.
+  useEffect(() => {
+    const container = element.current;
+    if (!container) return;
+    const preventTwoFingerScroll = (event: TouchEvent) => {
+      if (event.touches.length >= 2 && event.cancelable) event.preventDefault();
+    };
+    container.addEventListener("touchstart", preventTwoFingerScroll, {passive:false, capture:true});
+    container.addEventListener("touchmove", preventTwoFingerScroll, {passive:false, capture:true});
+    return () => {
+      container.removeEventListener("touchstart", preventTwoFingerScroll, true);
+      container.removeEventListener("touchmove", preventTwoFingerScroll, true);
+    };
+  }, []);
   const markerKey = useMemo(
     () =>
       JSON.stringify([
