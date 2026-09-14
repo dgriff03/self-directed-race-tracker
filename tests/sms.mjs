@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {createHmac,randomUUID} from 'node:crypto';
+process.env.GCLOUD_PROJECT='demo-paceline';
+process.env.FIREBASE_DATABASE_EMULATOR_HOST='127.0.0.1:9000';
+process.env.FIREBASE_CONFIG=JSON.stringify({projectId:'demo-paceline',databaseURL:'https://demo-paceline.firebaseio.com'});
+process.env.TWILIO_AUTH_TOKEN='local-test-token';process.env.TWILIO_PHONE_NUMBER='+15555550100';process.env.TWILIO_WEBHOOK_URL='https://example.com/sms';
+const {sms}=await import('../functions/lib/functions/src/index.js');
+const {getDatabase}=await import('../functions/node_modules/firebase-admin/lib/database/index.js');
+const {default:express}=await import('../functions/node_modules/express/index.js');
+const {default:twilio}=await import('../functions/node_modules/twilio/lib/index.js');
+const app=express();app.use(express.urlencoded({extended:false}));app.post('/sms',sms);
+const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
+const url=`http://127.0.0.1:${server.address().port}/sms`,db=getDatabase(),id=randomUUID();
+const from='+15555550199',key=createHmac('sha256',process.env.TWILIO_AUTH_TOKEN).update(`${process.env.TWILIO_PHONE_NUMBER}|${from}`).digest('hex');
+const send=async(Body,valid=true,sid='SM'+randomUUID().replaceAll('-',''))=>{const body={To:process.env.TWILIO_PHONE_NUMBER,From:from,MessageSid:sid,Body};const sig=twilio.getExpectedTwilioSignature(process.env.TWILIO_AUTH_TOKEN,process.env.TWILIO_WEBHOOK_URL,body);const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Twilio-Signature':valid?sig:'bad'},body:new URLSearchParams(body)});return {status:r.status,text:await r.text()};};
+try{
+await db.ref(`smsConversations/${key}`).remove();
+await db.ref(`races/${id}`).set({id,name:'SMS fixture',status:'scheduled',route:[[0,0],[.01,0]],startAt:Date.now()+60000,stations:[],splits:[],track:[],progressKm:0,revision:1});
+assert.equal((await send(id,false)).status,403);
+assert.equal((await db.ref(`smsConversations/${key}`).get()).exists(),false);
+assert.match((await send(id)).text,/SMS fixture/);
+assert.match((await send('UPDATE')).text,/SMS fixture/);
+assert.match((await send(randomUUID())).text,/not found/);
+assert.match((await send('UPDATE')).text,/SMS fixture/);
+const sid='SM'+randomUUID().replaceAll('-','');await send('UPDATE',true,sid);assert.doesNotMatch((await send('UPDATE',true,sid)).text,/<Message>/);
+await send('STOP');assert.equal((await db.ref(`smsConversations/${key}/raceId`).get()).exists(),false);
+assert.match((await send('UPDATE')).text,/text a race UUID/);
+await db.ref(`smsConversations/${key}`).update({count:12,windowAt:Date.now()});assert.doesNotMatch((await send(id)).text,/<Message>/);
+console.log('PASS SMS signatures, remembered event, invalid-ID preservation, retry deduplication, STOP and rate limit');
+}finally{await db.ref().update({[`smsConversations/${key}`]:null,[`races/${id}`]:null});db.goOffline();server.close();}

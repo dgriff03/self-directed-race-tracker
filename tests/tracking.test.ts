@@ -1238,3 +1238,22 @@ test("late warm-up waits for departure; mid-course pace excludes unobserved dist
     );
   }
 });
+
+test("SMS accepts race links, update commands, opt-out, and rejects ambiguous requests", async () => {
+  const { smsCommand, smsUpdate } = await import("../shared/sms");
+  const id = "adc8d7fa-9167-4763-adda-73defd9c46f5";
+  assert.deepEqual(smsCommand(`https://milemark.typetwo.dev/r/${id}`), {
+    kind: "race",
+    id,
+  });
+  assert.deepEqual(smsCommand("UPDATE"), { kind: "update" });
+  assert.deepEqual(smsCommand("stop"), { kind: "stop" });
+  assert.deepEqual(smsCommand(`${id} ${id}`), { kind: "help" });
+  const r = race();
+  assert.match(smsUpdate(r), /Waiting for tracker start/);
+  r.status = "complete";
+  r.finishSource = "estimated";
+  r.finishedAt = r.startAt + 600000;
+  assert.match(smsUpdate(r), /estimated, not GPS-confirmed/);
+  assert.match(smsUpdate(r), /00:10:00/);
+});

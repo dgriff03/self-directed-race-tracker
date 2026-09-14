@@ -22,7 +22,8 @@
     "test:maps": "node tests/map-fallback-browser.mjs && node tests/tile-cache.mjs",
     "test:browser": "npm run test:replay && npm run test:outback && npm run test:maps && npm run test:viewer",
     "test:viewer": "node tests/viewer-feedback-browser.mjs",
-    "test:storage": "node tests/storage.mjs"
+    "test:storage": "node tests/storage.mjs",
+    "test:sms": "npm run build:functions && node tests/sms.mjs"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

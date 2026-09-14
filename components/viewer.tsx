@@ -46,6 +46,8 @@ const time = (t: number) =>
   });
 export default function Viewer({ id }: { id: string }) {
   const demo = id === "demo";
+  const [smsCopied, setSmsCopied] = useState(false);
+  const smsNumber = import.meta.env.VITE_SMS_NUMBER as string | undefined;
   const [race, setRace] = useState<Race | null>(null),
     [now, setNow] = useState(Date.now()),
     [connected, setConnected] = useState(false),
@@ -362,6 +364,38 @@ export default function Viewer({ id }: { id: string }) {
             Replay this race
           </a>
         </p>
+      )}
+      {!demo && smsNumber && /^\+[1-9]\d{6,14}$/.test(smsNumber) && (
+        <section className="form-card" style={{ marginBottom: 16 }}>
+          <strong>Race updates by text</strong>
+          <p>
+            Text this race to {smsNumber}, then send UPDATE in the same
+            conversation for another update.
+          </p>
+          <a
+            className="button secondary"
+            href={`sms:${smsNumber}${/iPad|iPhone|iPod/.test(navigator.userAgent) ? "&" : "?"}body=${encodeURIComponent(race.id)}`}
+          >
+            Open messaging app
+          </a>{" "}
+          <button
+            className="button secondary"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(race.id);
+                setSmsCopied(true);
+              } catch {
+                setSmsCopied(false);
+              }
+            }}
+          >
+            {smsCopied ? "Message copied" : "Copy SMS message"}
+          </button>
+          <p className="field-note">
+            Replies only when you text us. Message and data rates may apply.
+            Text STOP to opt out.
+          </p>
+        </section>
       )}
       <section className="stats">
         <div>

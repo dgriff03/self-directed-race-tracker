@@ -215,3 +215,18 @@ The viewer shows the next aid ETA above the stats and links to Google Maps drivi
 The scheduled time controls the countdown and polling window. Elapsed time and pace start at the first accepted tracker timestamp, including late starts. Warm-up fixes near the start, whether early or late, wait for departure, using the last start-line fix as the anchor. Tracker timestamps approximate departure; they are not an official chip time.
 
 Event replay contains only GPS fixes accepted live; use raw KML uploads to investigate rejected fixes. Completed viewers link to replay with the event prefilled. Overall pace and terrain calibration exclude route distance before a mid-course tracker start. Personal scratch recordings, local courses, and the one-off Longs converter are ignored and are not shipped as project assets.
+
+### On-demand SMS (Twilio; optional)
+
+SMS is implemented but requires a phone number and credentials before activation. It sends replies only to incoming requests; no scheduled alerts or unsolicited messages. Text a viewer URL or UUID, then `UPDATE`, `STATUS`, or `?` for the last selected event. This remembers requests received by our number, not the user's phone message history. Invalid race IDs do not replace the previous selection. Context expires for reuse after 30 days. Sender/receiver pairs are keyed by HMAC; raw phone numbers and SMS bodies are not stored by Milemark (Twilio has its own message logs). Context nodes are private under the default database rules. Replies include UTC labels, GPS timestamps, next aid ETA, and clear estimated-finish wording. Replies can span multiple billable SMS segments.
+
+To activate:
+
+1. Choose an SMS-capable Twilio number and complete the registration/verification Twilio requires for its destination countries.
+2. Store the **account Auth Token** securely, using the CLI prompt (not chat or a committed file): `firebase functions:secrets:set TWILIO_AUTH_TOKEN --project self-directed-tracker-type-two`. An API key is not a substitute for the webhook-signing Auth Token.
+3. In ignored `functions/.env.self-directed-tracker-type-two`, set `TWILIO_PHONE_NUMBER=+...` and `TWILIO_WEBHOOK_URL=https://us-central1-self-directed-tracker-type-two.cloudfunctions.net/sms`. The URL must exactly match the webhook configured in Twilio, including any query string.
+4. Set `VITE_SMS_NUMBER=+...` in the ignored frontend production build environment. Without a valid number the SMS buttons remain hidden. Build, then deploy `functions:sms,hosting`.
+5. Configure Twilio's incoming-message webhook to HTTP **POST** to that URL. Configure Twilio opt-out handling; STOP clears Milemark's remembered race and emits no additional reply. Advanced Opt-Out START/HELP responses are left to Twilio.
+6. Send a real UUID from a phone, then UPDATE; verify another valid UUID switches races and STOP opts out. Physical iOS/Android compose links and live Twilio delivery need verification during activation.
+
+The webhook validates every Twilio signature using the official SDK and configured URL, verifies the receiving number, deduplicates recent MessageSids, and caps replies at 12 per sender per hour. Retried messages that were already claimed return empty TwiML; this prevents duplicate replies, but after a process interruption the sender may need to text UPDATE again. No REST sending API credential or private Garmin feed URL is needed. Do not deploy `functions:sms` until the secret and number are configured; unrelated deployments can target `functions:api,functions:pollGarmin,hosting` explicitly.
