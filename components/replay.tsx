@@ -265,7 +265,7 @@ export default function Replay() {
           <input
             value={eventId}
             onChange={(e) => setEventId(e.target.value)}
-            placeholder="Event UUID or viewer URL"
+            placeholder="Race slug, UUID or viewer URL"
           />
         </label>
         <button

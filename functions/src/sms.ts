@@ -1,3 +1,4 @@
+import { UUID_PATTERN } from "../../shared/race-reference.js";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret, defineString } from "firebase-functions/params";
 import { getDatabase } from "firebase-admin/database";
@@ -12,7 +13,7 @@ const webhookUrl = defineString("TWILIO_WEBHOOK_URL", {
 });
 const phone = defineString("TWILIO_PHONE_NUMBER", { default: "" });
 const help =
-  "Milemark: text a race UUID or viewer link for an update. Then text UPDATE to check that race again. STOP stops replies.";
+  "Milemark: text a race slug, UUID or viewer link for an update. Then text UPDATE to check that race again. STOP stops replies.";
 // No conversation-history fetch: remember only the last requested race per sender
 // and receiving number. Phone numbers and message bodies are never stored.
 export const sms = onRequest(
@@ -101,7 +102,7 @@ export const sms = onRequest(
         return;
       }
       const previous = claim.snapshot.val();
-      const id =
+      let id =
         command.kind === "race"
           ? command.id
           : now - (previous.selectedAt ?? 0) < 30 * 86400000
@@ -109,6 +110,12 @@ export const sms = onRequest(
             : null;
       if (!id) {
         reply(help);
+        return;
+      }
+      if (!UUID_PATTERN.test(id))
+        id = (await db.ref(`slugs/${id}`).get()).val();
+      if (!id) {
+        reply("Race not found. Send a valid slug, viewer link or UUID.");
         return;
       }
       const raw = (await db.ref(`races/${id}`).get()).val();

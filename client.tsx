@@ -6,7 +6,7 @@ import Editor from "./components/editor";
 import Replay from "./components/replay";
 import "./app/globals.css";
 const path = window.location.pathname;
-const viewer = path.match(/^\/r\/([a-f0-9-]{36})\/?$/i),
+const viewer = path.match(/^\/r\/([a-z0-9-]{3,40})\/?$/i),
   edit = path.match(/^\/edit\/([a-f0-9-]{36})\/?$/i);
 createRoot(document.getElementById("root")!).render(
   path === "/replay" || path === "/replay/" ? (

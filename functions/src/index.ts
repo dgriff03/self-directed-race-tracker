@@ -1,3 +1,5 @@
+import { claimSlug } from "./slugs.js";
+import { validSlug } from "../../shared/race-reference.js";
 import {
   storedCourse,
   storedLive,
@@ -36,6 +38,7 @@ const db = getDatabase();
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const uuid = z.string().uuid();
 const configSchema = z.object({
+  slug: z.string().trim().toLowerCase().refine(s=>!s || validSlug(s), "Invalid race slug; use 3–40 letters, numbers and hyphens, starting with a letter. SMS commands are reserved.").optional(),
   outAndBack: z.boolean().optional().default(false),
   name: z.string().trim().min(1).max(100),
   startAt: z.number().int().min(0).max(4102444800000),
@@ -118,8 +121,10 @@ export const api = onRequest(
           throw Error("Check route length and aid station distances.");
         const id = randomUUID(),
           editToken = randomUUID();
+        await claimSlug(input.slug, id);
         const race: Race = {
           id,
+          ...(input.slug ? {slug: input.slug} : {}),
           courseVersion: randomUUID(),
           outAndBack: input.outAndBack,
           name: input.name,
@@ -323,6 +328,8 @@ export const api = onRequest(
                 race.track.slice(-500).map((f) => [trackKey(f), storedFix(f)]),
               ),
             );
+        if (input.revision !== race.revision) {res.status(409).json({error:"Race changed. Reload before saving."});return;}
+        await claimSlug(input.slug, id);
         let conflict = false;
         const updated = await ref.transaction((raw) => {
           if (!raw) return raw;
@@ -348,6 +355,7 @@ export const api = onRequest(
           }
           return storedLive({
             ...current,
+            ...(input.slug ? {slug:input.slug} : {}),
             courseVersion,
             outAndBack: input.outAndBack,
             name: input.name,
@@ -408,7 +416,7 @@ export const api = onRequest(
           error instanceof z.ZodError
             ? "Please check the race fields."
             : error instanceof Error &&
-                /Garmin|route|station|feed is required|Unknown action/i.test(
+                /Garmin|route|station|feed is required|Unknown action|That race slug is already taken/i.test(
                   error.message,
                 )
               ? error.message

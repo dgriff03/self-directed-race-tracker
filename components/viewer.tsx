@@ -115,7 +115,7 @@ export default function Viewer({ id }: { id: string }) {
         }
         setRace(r);
         setError("");
-        saveRace(r).catch(() =>
+        saveRace(r, id).catch(() =>
           setError(
             "Offline saving is unavailable on this device. Keep this page open to retain the current race.",
           ),
@@ -159,7 +159,9 @@ export default function Viewer({ id }: { id: string }) {
   }, [race, connected, online, demo]);
   const share = async () => {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/r/${race?.slug ?? race?.id ?? id}`,
+      );
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
@@ -359,7 +361,7 @@ export default function Viewer({ id }: { id: string }) {
         <p>
           <a
             className="button secondary"
-            href={`/replay?event=${encodeURIComponent(race.id)}`}
+            href={`/replay?event=${encodeURIComponent(race.slug ?? race.id)}`}
           >
             Replay this race
           </a>
@@ -374,7 +376,7 @@ export default function Viewer({ id }: { id: string }) {
           </p>
           <a
             className="button secondary"
-            href={`sms:${smsNumber}${/iPad|iPhone|iPod/.test(navigator.userAgent) ? "&" : "?"}body=${encodeURIComponent(race.id)}`}
+            href={`sms:${smsNumber}${/iPad|iPhone|iPod/.test(navigator.userAgent) ? "&" : "?"}body=${encodeURIComponent(race.slug ?? race.id)}`}
           >
             Open messaging app
           </a>{" "}
@@ -382,7 +384,7 @@ export default function Viewer({ id }: { id: string }) {
             className="button secondary"
             onClick={async () => {
               try {
-                await navigator.clipboard.writeText(race.id);
+                await navigator.clipboard.writeText(race.slug ?? race.id);
                 setSmsCopied(true);
               } catch {
                 setSmsCopied(false);

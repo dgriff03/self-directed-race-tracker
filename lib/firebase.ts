@@ -1,3 +1,4 @@
+import { raceReference, UUID_PATTERN } from "../shared/race-reference";
 import { apiBase } from "./api-url";
 import { initializeApp, getApps } from "firebase/app";
 import {
@@ -78,12 +79,21 @@ export async function subscribe(
   const app = existing ?? initializeApp(c);
   const db = getDatabase(app);
   if (c.emulator && !existing) connectDatabaseEmulator(db, "127.0.0.1", 9000);
+  const reference = raceReference(id);
+  if (!UUID_PATTERN.test(reference)) {
+    id = (await get(ref(db, `slugs/${reference}`))).val();
+    if (!id) {
+      onRace(null);
+      return () => {};
+    }
+  } else id = reference;
   const stopConnection = onValue(ref(db, ".info/connected"), (s) =>
     onConnection(s.val() === true),
   );
   // Subscribe at field boundaries: route geometry is never resent with a heartbeat.
   const fields: (keyof Race)[] = [
     "id",
+    "slug",
     "courseVersion",
     "name",
     "startAt",
@@ -209,24 +219,15 @@ export async function subscribe(
 }
 
 // Read only public course and retained GPS data; never request the private feed URL.
-export function eventIdFromInput(input: string): string {
-  const value = input.trim();
-  const id = value.match(
-    /^(?:https?:\/\/[^/]+\/r\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/?(?:[?#].*)?)?$/i,
-  )?.[1];
-  if (!id) throw Error("Enter an event UUID or viewer URL.");
-  return id.toLowerCase();
-}
+export const eventIdFromInput = raceReference;
 export async function readPublicRace(input: string): Promise<Race> {
-  const id = eventIdFromInput(input);
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-  )
-    throw Error("Enter a valid event UUID.");
+  let id = raceReference(input);
   const c = await config();
   const existing = getApps()[0];
   const db = getDatabase(existing ?? initializeApp(c));
   if (c.emulator && !existing) connectDatabaseEmulator(db, "127.0.0.1", 9000);
+  if (!UUID_PATTERN.test(id)) id = (await get(ref(db, `slugs/${id}`))).val();
+  if (!id) throw Error("Event not found.");
   const raw = (await get(ref(db, `races/${id}`))).val();
   if (!raw) throw Error("Event not found.");
   if (!raw.courseVersion) return hydrateRace(raw);

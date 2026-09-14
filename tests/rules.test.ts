@@ -27,6 +27,9 @@ test("viewer capability cannot enumerate races, write records, or read edit cred
     const db = env.unauthenticatedContext().database();
     await assertSucceeds(get(ref(db, `races/${id}`)));
     await assertFails(get(ref(db, "races")));
+    await assertSucceeds(get(ref(db, "slugs/highline-run")));
+    await assertFails(get(ref(db, "slugs")));
+    await assertFails(set(ref(db, "slugs/highline-run"),id));
     for(const kind of ["courses","tracks"]) {
       await assertSucceeds(get(ref(db,`${kind}/${id}`)));
       await assertFails(get(ref(db,kind)));

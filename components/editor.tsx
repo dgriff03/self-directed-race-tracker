@@ -49,6 +49,7 @@ export default function Editor({ token }: { token?: string }) {
   const [health, setHealth] = useState<Race | null>(null);
   const [diagnostic, setDiagnostic] = useState("");
   const [testing, setTesting] = useState(false);
+  const [slug, setSlug] = useState("");
   const [name, setName] = useState(""),
     [start, setStart] = useState(""),
     [feed, setFeed] = useState(""),
@@ -73,6 +74,7 @@ export default function Editor({ token }: { token?: string }) {
       .then(({ race }) => {
         setSaved(race);
         setName(race.name);
+        setSlug(race.slug ?? "");
         setOutAndBack(!!race.outAndBack);
         setStart(localDate(race.startAt));
         setRoute(race.route);
@@ -140,7 +142,9 @@ export default function Editor({ token }: { token?: string }) {
     return () => clearTimeout(timer);
   }, [pickNotice]);
   const pickStation = (km: number) => {
-    setPickNotice(`Aid distance set to ${kmToMiles(km).toFixed(2)} mi. Enter a name, then choose Add aid station.`);
+    setPickNotice(
+      `Aid distance set to ${kmToMiles(km).toFixed(2)} mi. Enter a name, then choose Add aid station.`,
+    );
     setStationKm(kmToMiles(km).toFixed(2));
     setHoverKm(undefined);
   };
@@ -193,7 +197,9 @@ export default function Editor({ token }: { token?: string }) {
         sessionStorage.removeItem("milemark-just-created");
         setSaveNotice(true);
       }
-    } catch { /* Confirmation on edits still works when storage is unavailable. */ }
+    } catch {
+      /* Confirmation on edits still works when storage is unavailable. */
+    }
   }, [token]);
   useEffect(() => {
     if (!saveNotice) return;
@@ -216,6 +222,7 @@ export default function Editor({ token }: { token?: string }) {
           "Out-and-back mode needs a full route that returns along the same trail, with the turnaround at half the mileage.",
         );
       const body = {
+        slug: slug.trim().toLowerCase(),
         outAndBack,
         name,
         startAt: locked && saved ? saved.startAt : new Date(start).getTime(),
@@ -228,6 +235,7 @@ export default function Editor({ token }: { token?: string }) {
       if (token) {
         const data = await api("/edit", "PUT", body, token);
         setSaved(data.race);
+        setSlug(data.race.slug ?? "");
         setFeed("");
         setPickNotice("");
         setSaveNotice(true);
@@ -236,7 +244,9 @@ export default function Editor({ token }: { token?: string }) {
         );
       } else {
         const data = await api("/races", "POST", body);
-        try { sessionStorage.setItem("milemark-just-created", "1"); } catch {}
+        try {
+          sessionStorage.setItem("milemark-just-created", "1");
+        } catch {}
         window.location.assign(`/edit/${data.editToken}`);
       }
     } catch (e) {
@@ -279,7 +289,7 @@ export default function Editor({ token }: { token?: string }) {
       await navigator.clipboard.writeText(
         kind === "edit"
           ? window.location.href
-          : `${window.location.origin}/r/${saved?.id}`,
+          : `${window.location.origin}/r/${saved?.slug ?? saved?.id}`,
       );
       setCopied(kind);
       setTimeout(() => setCopied(""), 2000);
@@ -329,6 +339,21 @@ export default function Editor({ token }: { token?: string }) {
                   <span>01</span>
                   <h2>The essentials</h2>
                 </div>
+                <label>
+                  Public race slug (optional)
+                  <input
+                    value={slug}
+                    maxLength={40}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase())}
+                    placeholder="highline-2026"
+                  />
+                  <small>
+                    3–40 letters, numbers or hyphens, starting with a letter.
+                    Uniqueness is checked when you save. Slugs are easier to
+                    guess than UUID links; old slugs stay reserved for this
+                    race.
+                  </small>
+                </label>
                 <label>
                   Race name
                   <input
@@ -611,7 +636,13 @@ export default function Editor({ token }: { token?: string }) {
                           value={stationKm}
                           onChange={(e) => {
                             const value = e.target.value;
-                            setStationKm(value && Number.isFinite(Number(value)) && /\.\d{3,}|e/i.test(value) ? Number(value).toFixed(2) : value);
+                            setStationKm(
+                              value &&
+                                Number.isFinite(Number(value)) &&
+                                /\.\d{3,}|e/i.test(value)
+                                ? Number(value).toFixed(2)
+                                : value,
+                            );
                             setHoverKm(undefined);
                           }}
                         />
@@ -682,8 +713,59 @@ export default function Editor({ token }: { token?: string }) {
                     onPick={locked ? undefined : pickStation}
                   />
                 )}
-                {!locked && <p className="picker-guidance">Click the map or elevation chart to fill in the aid station distance. Then enter a name and choose Add aid station.</p>}
-                <div role="status" aria-live="polite">{saveNotice && <div className="picker-toast"><Check size={20} /><div><strong>Successfully saved</strong><p>Your race settings are saved.</p></div><button type="button" aria-label="Dismiss save confirmation" onClick={() => setSaveNotice(false)}>×</button></div>}{!saveNotice && pickNotice && <div className="picker-toast"><Check size={20} /><div><strong>Distance updated</strong><p>{pickNotice}</p><button type="button" onClick={() => {document.getElementById("aid-station-fields")?.scrollIntoView({behavior: "smooth", block: "center"});}}>Go to aid station fields</button></div><button type="button" aria-label="Dismiss distance confirmation" onClick={() => setPickNotice("")}>×</button></div>}</div>
+                {!locked && (
+                  <p className="picker-guidance">
+                    Click the map or elevation chart to fill in the aid station
+                    distance. Then enter a name and choose Add aid station.
+                  </p>
+                )}
+                <div role="status" aria-live="polite">
+                  {saveNotice && (
+                    <div className="picker-toast">
+                      <Check size={20} />
+                      <div>
+                        <strong>Successfully saved</strong>
+                        <p>Your race settings are saved.</p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Dismiss save confirmation"
+                        onClick={() => setSaveNotice(false)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                  {!saveNotice && pickNotice && (
+                    <div className="picker-toast">
+                      <Check size={20} />
+                      <div>
+                        <strong>Distance updated</strong>
+                        <p>{pickNotice}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            document
+                              .getElementById("aid-station-fields")
+                              ?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                              });
+                          }}
+                        >
+                          Go to aid station fields
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Dismiss distance confirmation"
+                        onClick={() => setPickNotice("")}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <p className="panel-note">
                   Your crew sees this route, your latest position, and arrival
                   estimates for each stop.
@@ -697,7 +779,7 @@ export default function Editor({ token }: { token?: string }) {
                     <div className="link-field">
                       <input
                         readOnly
-                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${saved.id}`}
+                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/r/${saved.slug ?? saved.id}`}
                       />
                       <button
                         type="button"
@@ -715,7 +797,7 @@ export default function Editor({ token }: { token?: string }) {
                   </label>
                   <a
                     className="button"
-                    href={`/r/${saved.id}`}
+                    href={`/r/${saved.slug ?? saved.id}`}
                     target="_blank"
                     rel="noreferrer"
                   >

@@ -16,6 +16,7 @@ export type Fix = {
 export type Split = { stationId: string; at: number; estimated: boolean };
 export type Race = {
   id: string;
+  slug?: string;
   courseVersion?: string;
   name: string;
   startAt: number;

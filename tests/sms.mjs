@@ -18,13 +18,15 @@ await db.ref(`smsConversations/${key}`).remove();
 await db.ref(`races/${id}`).set({id,name:'SMS fixture',status:'scheduled',route:[[0,0],[.01,0]],startAt:Date.now()+60000,stations:[],splits:[],track:[],progressKm:0,revision:1});
 assert.equal((await send(id,false)).status,403);
 assert.equal((await db.ref(`smsConversations/${key}`).get()).exists(),false);
+await db.ref(`slugs/sms-fixture-${id.slice(0,8)}`).set(id);
+assert.match((await send(`sms-fixture-${id.slice(0,8)}`)).text,/SMS fixture/);
 assert.match((await send(id)).text,/SMS fixture/);
 assert.match((await send('UPDATE')).text,/SMS fixture/);
 assert.match((await send(randomUUID())).text,/not found/);
 assert.match((await send('UPDATE')).text,/SMS fixture/);
 const sid='SM'+randomUUID().replaceAll('-','');await send('UPDATE',true,sid);assert.doesNotMatch((await send('UPDATE',true,sid)).text,/<Message>/);
 await send('STOP');assert.equal((await db.ref(`smsConversations/${key}/raceId`).get()).exists(),false);
-assert.match((await send('UPDATE')).text,/text a race UUID/);
+assert.match((await send('UPDATE')).text,/text a race slug/);
 await db.ref(`smsConversations/${key}`).update({count:12,windowAt:Date.now()});assert.doesNotMatch((await send(id)).text,/<Message>/);
 console.log('PASS SMS signatures, remembered event, invalid-ID preservation, retry deduplication, STOP and rate limit');
-}finally{await db.ref().update({[`smsConversations/${key}`]:null,[`races/${id}`]:null});db.goOffline();server.close();}
+}finally{await db.ref().update({[`smsConversations/${key}`]:null,[`races/${id}`]:null,[`slugs/sms-fixture-${id.slice(0,8)}`]:null});db.goOffline();server.close();}

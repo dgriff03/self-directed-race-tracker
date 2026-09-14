@@ -1257,3 +1257,13 @@ test("SMS accepts race links, update commands, opt-out, and rejects ambiguous re
   assert.match(smsUpdate(r), /estimated, not GPS-confirmed/);
   assert.match(smsUpdate(r), /00:10:00/);
 });
+
+test('race references normalize slugs and URLs while reserving SMS commands', async () => {
+  const {raceReference,validSlug}=await import('../shared/race-reference');
+  const {smsCommand}=await import('../shared/sms');
+  assert.equal(raceReference(' Highline-2026 '),'highline-2026');
+  assert.equal(raceReference('https://milemark.typetwo.dev/r/Highline-2026?crew=1'),'highline-2026');
+  assert.deepEqual(smsCommand('highline-2026'),{kind:'race',id:'highline-2026'});
+  assert.deepEqual(smsCommand('UPDATE'),{kind:'update'});
+  for(const invalid of ['stop','help','setup','a','-trail','trail-','trail--run','a/b','1trail'])assert.equal(validSlug(invalid),false);
+});

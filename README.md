@@ -208,7 +208,7 @@ For existing data, `node scripts/migrate-race-storage.mjs` previews the migratio
 
 ### Crew navigation and event replay
 
-On `/replay`, enter an event UUID or viewer URL and choose **Load event** to replay its saved course, aid stations, and retained GPS positions (up to 500). This never retrieves the private Garmin URL or modifies the race. Playback recalculates tracking with current rules; it is not a reconstruction of historical server decisions or organizer overrides.
+On `/replay`, enter an event slug, UUID or viewer URL and choose **Load event** to replay its saved course, aid stations, and retained GPS positions (up to 500). This never retrieves the private Garmin URL or modifies the race. Playback recalculates tracking with current rules; it is not a reconstruction of historical server decisions or organizer overrides.
 
 The viewer shows the next aid ETA above the stats and links to Google Maps driving directions for each station. Coordinates mark the station, not a verified parking area; crews must check vehicle access.
 
@@ -230,3 +230,9 @@ To activate:
 6. Send a real UUID from a phone, then UPDATE; verify another valid UUID switches races and STOP opts out. Physical iOS/Android compose links and live Twilio delivery need verification during activation.
 
 The webhook validates every Twilio signature using the official SDK and configured URL, verifies the receiving number, deduplicates recent MessageSids, and caps replies at 12 per sender per hour. Retried messages that were already claimed return empty TwiML; this prevents duplicate replies, but after a process interruption the sender may need to text UPDATE again. No REST sending API credential or private Garmin feed URL is needed. Do not deploy `functions:sms` until the secret and number are configured; unrelated deployments can target `functions:api,functions:pollGarmin,hosting` explicitly.
+
+### Public race slugs
+
+Organizers can optionally set a 3–40 character slug in the editor, using lowercase letters, numbers and single hyphens, starting with a letter (for example `highline-2026`). Reserved SMS commands cannot be slugs. Saving uses a Realtime Database transaction to claim the name exclusively before assigning it. Existing UUID viewer links always work. Viewer sharing, replay and SMS accept either form; new share/SMS links prefer the slug. Slugs make race pages easier to discover by guessing, and never expose the organizer's separate UUID edit link or Garmin feed.
+
+A slug claim remains attached to its race permanently, including after renaming or an interrupted save, so links are never reassigned to somebody else's race. An organizer can retry a claimed name on the same race. The `slugs` index supports exact-name reads only, denies enumeration and client writes, and maps to the canonical race UUID. Offline viewer snapshots retain the alias used to open the race.

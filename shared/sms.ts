@@ -1,3 +1,4 @@
+import { raceReference } from "./race-reference.js";
 import {
   calculateEta,
   completedDistance,
@@ -21,7 +22,11 @@ export function smsCommand(
     /\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
   );
   if (ids?.length === 1) return { kind: "race", id: ids[0].toLowerCase() };
-  return { kind: "help" };
+  try {
+    return { kind: "race", id: raceReference(text) };
+  } catch {
+    return { kind: "help" };
+  }
 }
 const time = (at: number) =>
   new Date(at).toLocaleString("en-US", {
