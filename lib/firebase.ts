@@ -88,6 +88,7 @@ export async function subscribe(
     "name",
     "startAt",
     "actualStartAt",
+    "startProgressKm",
     "startLineFix",
     "route",
     "distances",
@@ -208,19 +209,31 @@ export async function subscribe(
 }
 
 // Read only public course and retained GPS data; never request the private feed URL.
-export async function readPublicRace(id: string): Promise<Race> {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw Error('Enter a valid event UUID.');
+export function eventIdFromInput(input: string): string {
+  const value = input.trim();
+  const id = value.match(
+    /^(?:https?:\/\/[^/]+\/r\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/?(?:[?#].*)?)?$/i,
+  )?.[1];
+  if (!id) throw Error("Enter an event UUID or viewer URL.");
+  return id.toLowerCase();
+}
+export async function readPublicRace(input: string): Promise<Race> {
+  const id = eventIdFromInput(input);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )
+    throw Error("Enter a valid event UUID.");
   const c = await config();
   const existing = getApps()[0];
   const db = getDatabase(existing ?? initializeApp(c));
-  if (c.emulator && !existing) connectDatabaseEmulator(db, '127.0.0.1', 9000);
+  if (c.emulator && !existing) connectDatabaseEmulator(db, "127.0.0.1", 9000);
   const raw = (await get(ref(db, `races/${id}`))).val();
-  if (!raw) throw Error('Event not found.');
+  if (!raw) throw Error("Event not found.");
   if (!raw.courseVersion) return hydrateRace(raw);
   const [course, track] = await Promise.all([
     get(ref(db, `courses/${id}/${raw.courseVersion}`)),
     get(query(ref(db, `tracks/${id}`), orderByKey(), limitToLast(500))),
   ]);
-  if (!course.exists()) throw Error('Event course is unavailable.');
+  if (!course.exists()) throw Error("Event course is unavailable.");
   return hydrateRace(raw, course.val(), Object.values(track.val() ?? {}));
 }

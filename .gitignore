@@ -56,3 +56,8 @@ functions/node_modules/
 *.tsbuildinfo
 
 /.firebase/
+
+# Personal recordings and one-off course conversion artifacts
+/scratch_race_data.json
+/public/courses/
+/scripts/convert-longs-out-and-back.ts

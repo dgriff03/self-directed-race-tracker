@@ -60,7 +60,10 @@ export function terrainDistance(r: Race, from: number, to: number): number {
   };
   return Math.max(0, at(to) - at(from));
 }
-export function terrainCalibration(r: Race, targetKm: number): {travelMs: number; source: "rolling" | "overall"; kmh: number} | null {
+export function terrainCalibration(
+  r: Race,
+  targetKm: number,
+): { travelMs: number; source: "rolling" | "overall"; kmh: number } | null {
   if (!r.fix || !r.elevationsM) return null;
   const total = r.distances.at(-1)!;
   const recent = r.track.filter(
@@ -70,11 +73,18 @@ export function terrainCalibration(r: Race, targetKm: number): {travelMs: number
       (r.journey?.phase !== "returning" || f.km >= total / 2),
   );
   const turn = r.journey?.turnaroundKm;
-  const overallEffort = r.journey?.phase === "returning" && turn !== undefined
-    ? terrainDistance(r, 0, turn) + terrainDistance(r, total-turn, r.progressKm)
-    : terrainDistance(r, 0, r.progressKm);
+  const courseEffort =
+    r.journey?.phase === "returning" && turn !== undefined
+      ? terrainDistance(r, 0, turn) +
+        terrainDistance(r, total - turn, r.progressKm)
+      : terrainDistance(r, 0, r.progressKm);
+  const overallEffort = Math.max(
+    0,
+    courseEffort - terrainDistance(r, 0, r.startProgressKm ?? 0),
+  );
   const overallDuration = r.fix.at - (r.actualStartAt ?? r.startAt);
-  const overallSpeed = overallDuration > 0 ? overallEffort / overallDuration : 0;
+  const overallSpeed =
+    overallDuration > 0 ? overallEffort / overallDuration : 0;
   let source: "rolling" | "overall" = "rolling";
   let effort = 0,
     duration = 0;
@@ -90,10 +100,17 @@ export function terrainCalibration(r: Race, targetKm: number): {travelMs: number
     source = "overall";
   }
   if (effort <= 0 || duration <= 0) return null;
-  const effectiveSpeed = source === "rolling" ? Math.max(effort/duration, overallSpeed * 0.5) : effort/duration;
-  return {travelMs: terrainDistance(r,r.progressKm,targetKm)/effectiveSpeed, source, kmh:effectiveSpeed*3600000};
+  const effectiveSpeed =
+    source === "rolling"
+      ? Math.max(effort / duration, overallSpeed * 0.5)
+      : effort / duration;
+  return {
+    travelMs: terrainDistance(r, r.progressKm, targetKm) / effectiveSpeed,
+    source,
+    kmh: effectiveSpeed * 3600000,
+  };
 }
 
 export function terrainTravelMs(r: Race, targetKm: number): number | null {
-  return terrainCalibration(r,targetKm)?.travelMs ?? null;
+  return terrainCalibration(r, targetKm)?.travelMs ?? null;
 }

@@ -207,7 +207,9 @@ export default function Viewer({ id }: { id: string }) {
         s.km > race.progressKm &&
         !race.splits.some((p) => p.stationId === s.id),
     );
-  const nextEta = next ? calculateEta(race, next.km, next.id, now, {pace: etaBase!.pace, dwell}) : null;
+  const nextEta = next
+    ? calculateEta(race, next.km, next.id, now, { pace: etaBase!.pace, dwell })
+    : null;
   const directions = (km: number) => {
     const [lng, lat] = atDistance(race.route, race.distances, km);
     return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
@@ -242,7 +244,9 @@ export default function Viewer({ id }: { id: string }) {
               {demo
                 ? "DEMO RACE"
                 : complete
-                  ? race.finishSource === "estimated" ? "ESTIMATED FINISH" : "FINISHED"
+                  ? race.finishSource === "estimated"
+                    ? "ESTIMATED FINISH"
+                    : "FINISHED"
                   : scheduled
                     ? "UPCOMING"
                     : "LIVE RACE"}
@@ -268,8 +272,13 @@ export default function Viewer({ id }: { id: string }) {
         </button>
       </section>
       {complete && race.finishSource && (
-        <div className={`notice ${race.finishSource === "estimated" ? "estimated-finish-notice" : ""}`} role="status">
-          {race.finishSource === "estimated" && <strong>Estimated finish — not GPS-confirmed</strong>}
+        <div
+          className={`notice ${race.finishSource === "estimated" ? "estimated-finish-notice" : ""}`}
+          role="status"
+        >
+          {race.finishSource === "estimated" && (
+            <strong>Estimated finish — not GPS-confirmed</strong>
+          )}
           {race.finishSource === "estimated"
             ? "Estimated finish — inferred from the last nearby position and pace after waiting for another update. No GPS fix confirms the finish."
             : "Finish time reported by the organizer."}
@@ -320,11 +329,40 @@ export default function Viewer({ id }: { id: string }) {
           mi.
         </div>
       )}
-      {!complete && next && <section className="form-card" style={{marginBottom:16}}>
-        <strong>Next: {next.name} · {nextEta ? `${nextEta < now ? "Likely at" : "ETA"} ${time(nextEta)}` : "ETA awaiting GPS pace"}</strong>
-        <p><a className="button secondary" href={directions(next.km)} target="_blank" rel="noopener noreferrer">Drive to {next.name}</a></p>
-        <small>Directions target the aid location. Check road access and parking before driving.</small>
-      </section>}
+      {!complete && next && (
+        <section className="form-card" style={{ marginBottom: 16 }}>
+          <strong>
+            Next: {next.name} ·{" "}
+            {nextEta
+              ? `${nextEta < now ? "Likely at" : "ETA"} ${time(nextEta)}`
+              : "ETA awaiting GPS pace"}
+          </strong>
+          <p>
+            <a
+              className="button secondary"
+              href={directions(next.km)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Drive to {next.name}
+            </a>
+          </p>
+          <small>
+            Directions target the aid location. Check road access and parking
+            before driving.
+          </small>
+        </section>
+      )}
+      {complete && !demo && (
+        <p>
+          <a
+            className="button secondary"
+            href={`/replay?event=${encodeURIComponent(race.id)}`}
+          >
+            Replay this race
+          </a>
+        </p>
+      )}
       <section className="stats">
         <div>
           <span>DISTANCE COVERED</span>
@@ -367,7 +405,9 @@ export default function Viewer({ id }: { id: string }) {
           <span>{complete ? "TOTAL TIME" : "ELAPSED TIME"}</span>
           <strong>
             {elapsed(
-              !race.fix && !complete ? 0 : (complete ? (race.finishedAt ?? now) : now) - raceStart(race),
+              !race.fix && !complete
+                ? 0
+                : (complete ? (race.finishedAt ?? now) : now) - raceStart(race),
             )}
           </strong>
           <p>
@@ -432,7 +472,7 @@ export default function Viewer({ id }: { id: string }) {
             </h2>
             <span className="muted">{Math.round(percent)}% complete</span>
           </div>
-          <RaceMap race={race} estimatedKm={estimatedKm} />
+          <RaceMap race={race} clockAt={now} estimatedKm={estimatedKm} />
           <div className="map-bottom">
             {stale && !complete && race.heartbeatAt && (
               <p>Last connected to server at {time(race.heartbeatAt)}</p>
@@ -470,7 +510,14 @@ export default function Viewer({ id }: { id: string }) {
               </div>
               <div className="station-time">
                 <strong>{time(raceStart(race))}</strong>
-                <span>{scheduled ? "Scheduled" : "Start"}</span>
+                <span>{race.actualStartAt ? "Started" : "Scheduled"}</span>
+                {race.actualStartAt !== undefined &&
+                  race.actualStartAt !== race.startAt && (
+                    <span>
+                      Scheduled {time(race.startAt)} · Started{" "}
+                      {time(race.actualStartAt)}
+                    </span>
+                  )}
               </div>
             </div>
             {race.stations.map((s, i) => {
@@ -498,7 +545,13 @@ export default function Viewer({ id }: { id: string }) {
                   </span>
                   <div>
                     <h3>{s.name}</h3>
-                    <a href={directions(s.km)} target="_blank" rel="noopener noreferrer">Driving directions</a>
+                    <a
+                      href={directions(s.km)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Driving directions
+                    </a>
                     <p>
                       {kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi{" "}
                       {isDwell && (

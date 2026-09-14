@@ -20,6 +20,7 @@ export type Race = {
   name: string;
   startAt: number;
   actualStartAt?: number;
+  startProgressKm?: number;
   startLineFix?: Fix;
   route: Coordinate[];
   distances: number[];
@@ -129,7 +130,12 @@ export function project(
 export function speed(r: Race) {
   if (!r.fix) return 0;
   const elapsed = (r.fix.at - raceStart(r)) / 3600000;
-  return elapsed > 0 ? Math.min(25, completedDistance(r) / elapsed) : 0;
+  return elapsed > 0
+    ? Math.min(
+        25,
+        Math.max(0, completedDistance(r) - (r.startProgressKm ?? 0)) / elapsed,
+      )
+    : 0;
 }
 export function paceEstimate(
   r: Race,
@@ -255,8 +261,7 @@ export function calculateEta(
   if (!terrain && !(effectivePace > 0)) return null;
 
   const distKm = targetStationKm - r.progressKm;
-  const travelTimeMs =
-    terrain?.travelMs ?? (distKm / effectivePace) * 3600000;
+  const travelTimeMs = terrain?.travelMs ?? (distKm / effectivePace) * 3600000;
 
   const intermediateStations = r.stations.filter((s) => {
     if (
@@ -296,7 +301,7 @@ export const raceStart = (r: Race) => r.actualStartAt ?? r.startAt;
 // Early tracker warm-up is not a departure. Keep the last position at the
 // trailhead as the timing anchor, but only start after an accepted departure.
 function waitingAtStart(r: Race, fix: Fix): boolean {
-  if (r.fix || fix.at >= r.startAt) return false;
+  if (r.fix) return false;
   if (r.startLineFix && fix.at <= r.startLineFix.at) return true;
   if (distance(r.route[0], [fix.lng, fix.lat]) <= 0.05) {
     r.startLineFix = fix;
@@ -304,9 +309,11 @@ function waitingAtStart(r: Race, fix: Fix): boolean {
   }
   return false;
 }
-function recordDeparture(r: Race, fix: Fix) {
-  if (!r.fix)
+function recordDeparture(r: Race, fix: Fix, km: number) {
+  if (!r.fix) {
     r.actualStartAt = r.startLineFix?.at ?? fix.at;
+    r.startProgressKm = r.startLineFix ? 0 : km;
+  }
 }
 
 export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
@@ -383,7 +390,7 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
       (pending.km ?? 0) <= km
         ? pending
         : null;
-    recordDeparture(out, confirmedPending ?? fix);
+    recordDeparture(out, confirmedPending ?? fix, confirmedPending?.km ?? km);
     for (const station of out.stations) {
       if (
         station.km <= km &&
@@ -677,7 +684,7 @@ function applyOutAndBackFix(
     if (r.status !== "complete") applyOutAndBackFix(r, fix, now, km);
     return;
   }
-  recordDeparture(r, fix);
+  recordDeparture(r, fix, km);
   const wasReturning = j.phase === "returning";
   if (j.phase === "outbound") {
     if (km > j.peakKm) {

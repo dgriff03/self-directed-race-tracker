@@ -46,7 +46,7 @@ function race(): Race {
 test("sparse fixes interpolate aid splits and ignore duplicates/out-of-order data", () => {
   const r = race();
   const fix = { lng: 0.01, lat: 0, at: r.startAt + 1800000 };
-  const result = applyFixes(r, [{lng:0,lat:0,at:r.startAt}, fix]);
+  const result = applyFixes(r, [{ lng: 0, lat: 0, at: r.startAt }, fix]);
   assert.equal(result.splits.length, 1);
   assert.ok(
     Math.abs(
@@ -576,7 +576,10 @@ test("replay preserves state identity between fixes and accepts a day of five-se
   const first = engine.seek(r.startAt);
   for (let i = 1; i < 50; i++)
     assert.equal(engine.seek(r.startAt + i * 100), first);
-  assert.equal(engine.seek(points.at(-1)!.at).fix?.at, points.at(-1)!.at);
+  assert.equal(
+    engine.seek(points.at(-1)!.at).startLineFix?.at,
+    points.at(-1)!.at,
+  );
 });
 test("rolling ETA retains downstream and current stop allowances while dwelling", () => {
   const r = race();
@@ -911,7 +914,8 @@ test("early start window accepts boundary fixes and uses actual time in both mod
       [{ lng: 0, lat: 0, at: r.startAt + 600000 }],
       r.startAt + 600000,
     );
-    assert.equal(late.actualStartAt, r.startAt + 600000);
+    assert.equal(late.actualStartAt, undefined);
+    assert.equal(late.startLineFix?.at, r.startAt + 600000);
   }
 });
 
@@ -1100,42 +1104,137 @@ test("storage separates rounded course and stable keyed breadcrumbs without deri
   assert.equal(loaded.track.length, 1);
 });
 
-test('completed track follows route bends, preserves off-route fixes, and shrinks on rewind', async () => {
-  const { completedTrack } = await import('../shared/completed-track');
+test("completed track follows route bends, preserves off-route fixes, and shrinks on rewind", async () => {
+  const { completedTrack } = await import("../shared/completed-track");
   const r = race();
-  r.route = [[0,0],[0.01,0],[0.01,0.01]];
+  r.route = [
+    [0, 0],
+    [0.01, 0],
+    [0.01, 0.01],
+  ];
   r.distances = cumulative(r.route);
-  r.track = [{lng:0,lat:0,at:1,km:0},{lng:0.01,lat:0.01,at:2,km:r.distances[2]}];
+  r.track = [
+    { lng: 0, lat: 0, at: 1, km: 0 },
+    { lng: 0.01, lat: 0.01, at: 2, km: r.distances[2] },
+  ];
   assert.deepEqual(completedTrack(r), r.route);
-  r.track[1] = {...r.track[1],lng:0.02};
-  assert.deepEqual(completedTrack(r), [[0,0],[0.02,0.01]]);
-  r.track = r.track.slice(0,1);
-  assert.deepEqual(completedTrack(r), [[0,0]]);
+  r.track[1] = { ...r.track[1], lng: 0.02 };
+  assert.deepEqual(completedTrack(r), [
+    [0, 0],
+    [0.02, 0.01],
+  ]);
+  r.track = r.track.slice(0, 1);
+  assert.deepEqual(completedTrack(r), [[0, 0]]);
 });
 
-test('completed out-and-back follows only the early turnaround, not the summit', async () => {
-  const { completedTrack } = await import('../shared/completed-track');
+test("completed out-and-back follows only the early turnaround, not the summit", async () => {
+  const { completedTrack } = await import("../shared/completed-track");
   const r = race();
-  r.route = [[0,0],[0.01,0],[0.02,0],[0.01,0],[0,0]];
+  r.route = [
+    [0, 0],
+    [0.01, 0],
+    [0.02, 0],
+    [0.01, 0],
+    [0, 0],
+  ];
   r.distances = cumulative(r.route);
   r.outAndBack = true;
-  r.journey = {phase:'returning', peakKm:r.distances[1], peakAt:2, positionKm:0,reverseCount:3,reverseAt:2,turnaroundKm:r.distances[1],turnedAt:2};
-  r.track = [{lng:0,lat:0,at:1,km:0,outboundKm:0},{lng:0,lat:0,at:3,km:r.distances[4],outboundKm:0}];
-  assert.deepEqual(completedTrack(r), [[0,0],[0.01,0],[0,0]]);
+  r.journey = {
+    phase: "returning",
+    peakKm: r.distances[1],
+    peakAt: 2,
+    positionKm: 0,
+    reverseCount: 3,
+    reverseAt: 2,
+    turnaroundKm: r.distances[1],
+    turnedAt: 2,
+  };
+  r.track = [
+    { lng: 0, lat: 0, at: 1, km: 0, outboundKm: 0 },
+    { lng: 0, lat: 0, at: 3, km: r.distances[4], outboundKm: 0 },
+  ];
+  assert.deepEqual(completedTrack(r), [
+    [0, 0],
+    [0.01, 0],
+    [0, 0],
+  ]);
 });
 
-test('late tracker start anchors elapsed time and pace in both route modes', () => {
+test("late tracker start anchors elapsed time and pace in both route modes", () => {
   for (const outAndBack of [false, true]) {
     const r = race();
-    if(outAndBack) {
-      r.route = [[0,0],[0.01,0],[0.02,0],[0.01,0],[0,0]];
+    if (outAndBack) {
+      r.route = [
+        [0, 0],
+        [0.01, 0],
+        [0.02, 0],
+        [0.01, 0],
+        [0, 0],
+      ];
       r.distances = cumulative(r.route);
       r.outAndBack = true;
     }
-    const actual = r.startAt + 30*60000;
-    const started = applyFixes(r,[{lng:0,lat:0,at:actual},{lng:0.005,lat:0,at:actual+600000}],actual+600000);
-    assert.equal(started.actualStartAt,actual);
-    assert.equal(started.startAt,r.startAt);
-    assert.ok(Math.abs(speed(started) - started.progressKm*6)<0.001);
+    const actual = r.startAt + 30 * 60000;
+    const started = applyFixes(
+      r,
+      [
+        { lng: 0, lat: 0, at: actual },
+        { lng: 0.005, lat: 0, at: actual + 600000 },
+      ],
+      actual + 600000,
+    );
+    assert.equal(started.actualStartAt, actual);
+    assert.equal(started.startAt, r.startAt);
+    assert.ok(Math.abs(speed(started) - started.progressKm * 6) < 0.001);
+  }
+});
+
+test("late warm-up waits for departure; mid-course pace excludes unobserved distance", () => {
+  for (const outAndBack of [false, true]) {
+    const r = race();
+    if (outAndBack) {
+      r.route = [
+        [0, 0],
+        [0.04, 0],
+        [0, 0],
+      ];
+      r.distances = cumulative(r.route);
+      r.outAndBack = true;
+    }
+    const t = r.startAt + 1800000;
+    const waiting = applyFixes(
+      r,
+      [
+        { lng: 0, lat: 0, at: t - 1200000 },
+        { lng: 0, lat: 0, at: t },
+      ],
+      t,
+    );
+    assert.equal(waiting.fix, null);
+    assert.equal(waiting.actualStartAt, undefined);
+    const moved = applyFixes(
+      waiting,
+      [{ lng: 0.005, lat: 0, at: t + 600000 }],
+      t + 600000,
+    );
+    assert.equal(moved.actualStartAt, t);
+    assert.equal(moved.startProgressKm, 0);
+    const mid = applyFixes(
+      r,
+      [
+        { lng: 0.01, lat: 0, at: t },
+        { lng: 0.015, lat: 0, at: t + 600000 },
+      ],
+      t + 600000,
+    );
+    assert.ok((mid.startProgressKm ?? 0) > 1);
+    assert.ok(Math.abs(speed(mid) - 3.33585) < 0.01);
+    const terrain = { ...mid, elevationsM: r.route.map(() => 100) };
+    assert.ok(
+      Math.abs(
+        calculateEta(terrain, mid.progressKm + 0.1, "next", t + 600000)! -
+          (t + 600000 + (0.1 / speed(mid)) * 3600000),
+      ) < 100,
+    );
   }
 });

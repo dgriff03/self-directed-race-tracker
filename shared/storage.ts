@@ -61,6 +61,9 @@ export function storedLive(r: Race): any {
       .filter((s) => !s.returnOf)
       .map((s) => ({ ...s, km: round(s.km, 3) })),
     progressKm: round(r.progressKm, 3),
+    ...(r.startProgressKm !== undefined
+      ? { startProgressKm: round(r.startProgressKm, 3) }
+      : {}),
   };
   for (const key of [
     "fix",

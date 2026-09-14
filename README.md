@@ -176,7 +176,7 @@ Browser checks are available through `npm run test:replay`, `npm run test:outbac
 
 Out-and-back aid stations now include automatic return visits with independent ETAs and crossing splits. Return distance is the full planned distance minus the outbound station distance. A station within 150 meters (about 0.09 mi) of the route midpoint is treated as a single summit/turnaround visit. An explicitly entered return station within 100 meters of the mirrored distance is retained instead of creating a duplicate. Generated visits follow edits to the outbound station and are also available for existing races; they do not create extra overlapping map markers. Early returns skip bypassed visits while retaining visits on the way back.
 
-**Starting early:** Polling opens one hour early. Positions within 50 meters of the start are kept as timing anchors without starting the race clock. An accepted departure before the scheduled time starts the clock at the last such position (or the departure timestamp if none exists). This is approximate with sparse GPS and subject to GPS drift. Late departures start the clock at the first accepted tracker timestamp. Existing started races are not automatically retimed.
+**Starting early:** Polling opens one hour early. Positions within 50 meters of the start are kept as timing anchors without starting the race clock. An accepted departure, before or after the scheduled time, starts the clock at the last such position (or the departure timestamp if none exists). This is approximate with sparse GPS and subject to GPS drift. Late warm-up positions use the same 50-meter departure guard. Existing started races are not automatically retimed.
 
 Use `nvm use` to select the Node version in `.nvmrc` before installing or building. Local scratch courses under `public/courses/` are explicitly excluded from Firebase Hosting; the untracked Longs conversion script is not part of the supported application tooling.
 
@@ -208,8 +208,10 @@ For existing data, `node scripts/migrate-race-storage.mjs` previews the migratio
 
 ### Crew navigation and event replay
 
-On `/replay`, enter an event UUID and choose **Load event** to replay its saved course, aid stations, and retained GPS positions (up to 500). This never retrieves the private Garmin URL or modifies the race. Playback recalculates tracking with current rules; it is not a reconstruction of historical server decisions or organizer overrides.
+On `/replay`, enter an event UUID or viewer URL and choose **Load event** to replay its saved course, aid stations, and retained GPS positions (up to 500). This never retrieves the private Garmin URL or modifies the race. Playback recalculates tracking with current rules; it is not a reconstruction of historical server decisions or organizer overrides.
 
 The viewer shows the next aid ETA above the stats and links to Google Maps driving directions for each station. Coordinates mark the station, not a verified parking area; crews must check vehicle access.
 
-The scheduled time controls the countdown and polling window. Elapsed time and pace start at the first accepted tracker timestamp, including late starts. Early warm-up fixes near the start still wait for departure, using the last start-line fix as the anchor. Tracker timestamps approximate departure; they are not an official chip time.
+The scheduled time controls the countdown and polling window. Elapsed time and pace start at the first accepted tracker timestamp, including late starts. Warm-up fixes near the start, whether early or late, wait for departure, using the last start-line fix as the anchor. Tracker timestamps approximate departure; they are not an official chip time.
+
+Event replay contains only GPS fixes accepted live; use raw KML uploads to investigate rejected fixes. Completed viewers link to replay with the event prefilled. Overall pace and terrain calibration exclude route distance before a mid-course tracker start. Personal scratch recordings, local courses, and the one-off Longs converter are ignored and are not shipped as project assets.

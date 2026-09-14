@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   stationSkipped,
+  calculateEta,
   stationDistance,
   kmToMiles,
   atDistance,
@@ -16,12 +17,14 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 export default function RaceMap({
   race,
   estimatedKm,
+  clockAt = Date.now(),
   onPick,
   previewKm,
   onHover,
 }: {
   race: Race;
   estimatedKm?: number;
+  clockAt?: number;
   previewKm?: number;
   onHover?: (km?: number) => void;
   onPick?: (km: number) => void;
@@ -41,8 +44,14 @@ export default function RaceMap({
     const preventTwoFingerScroll = (event: TouchEvent) => {
       if (event.touches.length >= 2 && event.cancelable) event.preventDefault();
     };
-    container.addEventListener("touchstart", preventTwoFingerScroll, {passive:false, capture:true});
-    container.addEventListener("touchmove", preventTwoFingerScroll, {passive:false, capture:true});
+    container.addEventListener("touchstart", preventTwoFingerScroll, {
+      passive: false,
+      capture: true,
+    });
+    container.addEventListener("touchmove", preventTwoFingerScroll, {
+      passive: false,
+      capture: true,
+    });
     return () => {
       container.removeEventListener("touchstart", preventTwoFingerScroll, true);
       container.removeEventListener("touchmove", preventTwoFingerScroll, true);
@@ -55,6 +64,7 @@ export default function RaceMap({
         race.splits,
         race.fix,
         race.status,
+        Math.floor(clockAt / 60000),
         race.journey?.phase,
         race.journey?.turnaroundKm,
       ]),
@@ -63,6 +73,7 @@ export default function RaceMap({
       race.splits,
       race.fix,
       race.status,
+      Math.floor(clockAt / 60000),
       race.journey?.phase,
       race.journey?.turnaroundKm,
     ],
@@ -260,12 +271,7 @@ export default function RaceMap({
       };
       line("course-outline", race.route, "#fff", 8);
       line("course", race.route, "#e5672c", 4);
-      line(
-        "track",
-        completedTrack(raceRef.current),
-        "#153f4a",
-        5,
-      );
+      line("track", completedTrack(raceRef.current), "#153f4a", 5);
       const marker = (
         point: Coordinate,
         label: string,
@@ -285,12 +291,23 @@ export default function RaceMap({
         );
       };
       marker(race.route[0], "Start", "start", "S");
+      const arrivalLabel = (station: Race["stations"][number]) => {
+        const split = race.splits.find((p) => p.stationId === station.id);
+        const eta =
+          split?.at ??
+          (race.status !== "complete" && !stationSkipped(race, station.id)
+            ? calculateEta(race, station.km, station.id, clockAt)
+            : null);
+        return eta
+          ? ` · ${split ? "Passed" : eta < clockAt ? "Likely at" : "ETA"} ${new Date(eta).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`
+          : "";
+      };
       race.stations.forEach((s, i) => {
         if (s.returnOf) return;
         const returning = race.stations.find((t) => t.returnOf === s.id);
         marker(
           atDistance(race.route, race.distances, s.km),
-          `${s.name} · ${kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi${returning ? ` · Return visit at ${kmToMiles(stationDistance(race, returning.km)).toFixed(1)} mi` : ""}${stationSkipped(race, s.id) ? " · Skipped on early return" : ""}`,
+          `${s.name}${arrivalLabel(s)} · ${kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi${returning ? ` · Return visit${arrivalLabel(returning)} at ${kmToMiles(stationDistance(race, returning.km)).toFixed(1)} mi` : ""}${stationSkipped(race, s.id) ? " · Skipped on early return" : ""}`,
           race.splits.some((p) => p.stationId === s.id) ? "passed" : "aid",
           s.id === "finish" ? "F" : String(i + 1),
         );
@@ -324,7 +341,14 @@ export default function RaceMap({
             },
           },
     );
-  }, [ready, race.track, race.route, race.distances, race.outAndBack, race.journey]);
+  }, [
+    ready,
+    race.track,
+    race.route,
+    race.distances,
+    race.outAndBack,
+    race.journey,
+  ]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -380,7 +404,12 @@ export default function RaceMap({
   return (
     <div className="map-wrap">
       <div className="map" ref={element} aria-label="Race route map" />
-      {onPick && previewKm !== undefined && <div className="map-pick-hint">{kmToMiles(previewKm).toFixed(2)} mi · Click or tap to set aid distance</div>}
+      {onPick && previewKm !== undefined && (
+        <div className="map-pick-hint">
+          {kmToMiles(previewKm).toFixed(2)} mi · Click or tap to set aid
+          distance
+        </div>
+      )}
       {error && (
         <div className="map-notice">
           Some map tiles are unavailable. The route and splits remain available.
