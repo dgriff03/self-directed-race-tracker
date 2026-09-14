@@ -1267,3 +1267,9 @@ test('race references normalize slugs and URLs while reserving SMS commands', as
   assert.deepEqual(smsCommand('UPDATE'),{kind:'update'});
   for(const invalid of ['stop','help','setup','a','-trail','trail-','trail--run','a/b','1trail'])assert.equal(validSlug(invalid),false);
 });
+
+ test('slugs cannot shadow an existing UUID reference', async()=> {
+ const {validSlug,raceReference}=await import('../shared/race-reference');
+ const id='adc8d7fa-9167-4763-adda-73defd9c46f5';
+ assert.equal(validSlug(id),false); assert.equal(raceReference(id),id);
+ });

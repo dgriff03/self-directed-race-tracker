@@ -27,6 +27,7 @@ export function validSlug(value: string): boolean {
     /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) &&
     value.length >= 3 &&
     value.length <= 40 &&
+    !UUID_PATTERN.test(value) &&
     !reserved.has(value)
   );
 }
