@@ -11,7 +11,7 @@ const round = (n: number, places: number) => Number(n.toFixed(places));
 export function storedCourse(r: Pick<Race, "route" | "elevationsM">): Course {
   return {
     route: r.route.map(([x, y]) => [round(x, 6), round(y, 6)]),
-    elevationsM: r.elevationsM?.map(Math.round) ?? null,
+    elevationsM: r.elevationsM?.map((e) => round(e, 1)) ?? null,
   };
 }
 export function storedFix(f: Fix): Fix {

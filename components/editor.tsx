@@ -604,7 +604,7 @@ export default function Editor({ token }: { token?: string }) {
                 {route.length > 0 && (
                   <p className="field-note">
                     {elevationsM
-                      ? `${Math.round(metersToFeet(elevationProgress(ds, elevationsM, 0)!.totalM)).toLocaleString()} ft total elevation gain · from GPX`
+                      ? `${Math.round(metersToFeet(elevationProgress(ds, elevationsM, 0)!.totalM)).toLocaleString()} ft estimated ascent · smoothed GPX`
                       : "Elevation data unavailable. Upload a GPX with elevations to show vertical progress."}
                   </p>
                 )}

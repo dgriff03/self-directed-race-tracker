@@ -154,23 +154,11 @@ test("imperial display conversions preserve stored distances and pace", () => {
 test("vertical progress sums ascent, interpolates climbs, and ignores descents", () => {
   const ds = [0, 1, 2, 3],
     e = [100, 200, 150, 250];
-  assert.deepEqual(elevationProgress(ds, e, 0), { totalM: 200, completedM: 0 });
-  assert.deepEqual(elevationProgress(ds, e, 0.5), {
-    totalM: 200,
-    completedM: 50,
-  });
-  assert.deepEqual(elevationProgress(ds, e, 1.5), {
-    totalM: 200,
-    completedM: 100,
-  });
-  assert.deepEqual(elevationProgress(ds, e, 2.5), {
-    totalM: 200,
-    completedM: 150,
-  });
-  assert.deepEqual(elevationProgress(ds, e, 99), {
-    totalM: 200,
-    completedM: 200,
-  });
+  for (const [km, expected] of [[0,0],[0.5,50],[1.5,100],[2.5,150],[99,200]]) {
+    const result=elevationProgress(ds,e,km)!;
+    assert.ok(Math.abs(result.totalM-200)<5);
+    assert.ok(Math.abs(result.completedM-expected)<5);
+  }
   assert.equal(elevationProgress(ds, undefined, 1), null);
   assert.equal(elevationProgress(ds, [100, 200], 1), null);
   assert.equal(elevationProgress(ds, [100, NaN, 150, 250], 1), null);
@@ -1093,7 +1081,7 @@ test("storage separates rounded course and stable keyed breadcrumbs without deri
   const course = storedCourse(r),
     live = storedLive(r);
   assert.deepEqual(course.route[0], [1.123457, 2.123457]);
-  assert.deepEqual(course.elevationsM, [101, 104]);
+  assert.deepEqual(course.elevationsM, [100.6, 104.2]);
   for (const key of ["route", "distances", "elevationsM", "track"])
     assert.equal(key in live, false);
   const fix = storedFix(r.track[0]);
@@ -1277,4 +1265,29 @@ test('race references normalize slugs and URLs while reserving SMS commands', as
  test('Twilio-intercepted keywords cannot become slugs', async()=> {
  const {validSlug,raceReference}=await import('../shared/race-reference');
  for(const keyword of ['yes','unstop','info']){assert.equal(validSlug(keyword),false);assert.throws(()=>raceReference(keyword.toUpperCase()));}
+ });
+
+ test('ascent suppresses flat-profile noise, preserves sustained hills and is sample-density independent', () => {
+  const ds=Array.from({length:401},(_,i)=>i*0.005);
+  const flat=ds.map((_,i)=>100+(i%2?1:-1));
+  assert.equal(elevationProgress(ds,flat,2)!.totalM,0);
+  const slope=ds.map(d=>100+50*d+(Math.round(d/0.005)%2?1:-1));
+  const climbed=elevationProgress(ds,slope,2)!;
+  assert.ok(Math.abs(climbed.totalM-100)<3);
+  const coarse=[0,0.5,1,1.5,2], elevations=[0,50,0,50,0];
+  const dense=ds.map(d=>{let i=Math.min(4,Math.floor(d/0.5)+1);return elevations[i-1]+(elevations[i]-elevations[i-1])*(d-coarse[i-1])/0.5;});
+  assert.ok(Math.abs(elevationProgress(coarse,elevations,2)!.totalM-elevationProgress(ds,dense,2)!.totalM)<0.001);
+  let previous=0;
+  for(const d of ds){const p=elevationProgress(ds,dense,d)!;assert.ok(p.completedM>=previous-1e-9);assert.ok(p.completedM<=p.totalM+1e-9);previous=p.completedM;}
+  assert.equal(elevationProgress(ds,dense,0)!.completedM,0);
+  assert.equal(elevationProgress(ds,dense,2)!.completedM,elevationProgress(ds,dense,2)!.totalM);
+  assert.equal(elevationProgress([0,0],[0,500],1)!.totalM,0);
+  assert.equal(elevationProgress([0,1,0.5],[0,100,50],1),null);
+ });
+
+ test('smoothed ascent counts only the traversed early out-and-back', async () => {
+ const {journeyElevation}=await import('../shared/race');
+ const r=race();r.distances=[0,1,2,3,4];r.elevationsM=[0,100,200,100,0];r.outAndBack=true;r.progressKm=4;
+ r.journey={phase:'returning',peakKm:1,peakAt:1,positionKm:0,reverseCount:3,reverseAt:1,turnaroundKm:1};
+ const v=journeyElevation(r)!;assert.ok(Math.abs(v.totalM-100)<1e-6);assert.equal(v.completedM,v.totalM);
  });

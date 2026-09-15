@@ -533,7 +533,7 @@ export default function Replay() {
               </strong>
             </div>
             <div>
-              <small>VERT COMPLETED</small>
+              <small>ESTIMATED ASCENT</small>
               <strong>
                 {vert
                   ? `${Math.round(metersToFeet(vert.completedM))} / ${Math.round(metersToFeet(vert.totalM))} ft`

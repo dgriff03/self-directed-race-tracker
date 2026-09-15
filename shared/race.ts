@@ -1,3 +1,4 @@
+import { smoothedAscent } from "./ascent.js";
 import { terrainCalibration } from "./terrain.js";
 export type Coordinate = [number, number];
 export type Station = {
@@ -467,28 +468,7 @@ export function elevationProgress(
   elevationsM: number[] | null | undefined,
   progressKm: number,
 ) {
-  if (
-    !elevationsM ||
-    elevationsM.length !== distances.length ||
-    distances.length < 2 ||
-    elevationsM.some((e) => !Number.isFinite(e))
-  )
-    return null;
-  let totalM = 0,
-    completedM = 0;
-  for (let i = 1; i < distances.length; i++) {
-    const rise = Math.max(0, elevationsM[i] - elevationsM[i - 1]);
-    totalM += rise;
-    const span = distances[i] - distances[i - 1];
-    const fraction =
-      span > 0
-        ? Math.max(0, Math.min(1, (progressKm - distances[i - 1]) / span))
-        : progressKm >= distances[i]
-          ? 1
-          : 0;
-    completedM += rise * fraction;
-  }
-  return { totalM, completedM };
+  return smoothedAscent(distances, elevationsM, progressKm);
 }
 
 // Explicit mode for a full, retraced out-and-back GPX (turn at half distance).

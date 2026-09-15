@@ -415,7 +415,7 @@ export default function Viewer({ id }: { id: string }) {
           </div>
         </div>
         <div className="vert-card">
-          <span>VERT COMPLETED</span>
+          <span>ESTIMATED ASCENT</span>
           <strong className="vert-stat">
             {vert
               ? Math.round(metersToFeet(vert.completedM)).toLocaleString()
@@ -437,7 +437,7 @@ export default function Viewer({ id }: { id: string }) {
           )}
           <p>
             {vert
-              ? "GPX ascent at confirmed position"
+              ? "Smoothed GPX ascent at confirmed route progress"
               : "GPX elevation data unavailable"}
           </p>
         </div>
