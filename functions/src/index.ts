@@ -21,6 +21,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  reportCrewDeparture,
   stationVisits,
   EARLY_START_MS,
   applyFixes,
@@ -82,6 +83,23 @@ export const api = onRequest(
     res.set("Referrer-Policy", "strict-origin");
     try {
       const path = req.path.replace(/^\/api/, "");
+      const departurePath=path.match(/^\/races\/([0-9a-f-]{36})\/depart$/i);
+      if(req.method === "POST" && departurePath) {
+        const id=uuid.parse(departurePath[1].toLowerCase());
+        const input=z.object({stationId:z.string().min(1).max(100),fixAt:z.number().int().positive()}).parse(req.body);
+        const ref=db.ref(`races/${id}`),snapshot=await ref.get();
+        if(!snapshot.exists()){res.status(404).json({error:"Race not found."});return;}
+        const loaded=await loadRace(snapshot.val());
+        const now=Date.now();
+        const result=await ref.transaction(raw=>{
+          if(!raw)return raw;
+          if(raw.courseVersion!==loaded.courseVersion)return;
+          const updated=reportCrewDeparture(withStatic(raw,loaded),input.stationId,input.fixAt,now);
+          return updated?persistRace(updated):undefined;
+        });
+        if(!result.committed){res.status(409).json({error:"The departure window has closed, GPS has updated, or someone already reported departure."});return;}
+        res.json({ok:true});return;
+      }
       if (req.method === "POST" && path === "/races") {
         const ip = hash(
           requestIp(req.headers["x-forwarded-for"], req.socket.remoteAddress),

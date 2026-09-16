@@ -23,6 +23,7 @@ export type Race = {
   startAt: number;
   actualStartAt?: number;
   startProgressKm?: number;
+  crewDeparture?: { stationId: string; at: number; fixAt: number } | null;
   startLineFix?: Fix;
   route: Coordinate[];
   distances: number[];
@@ -236,6 +237,36 @@ export function stationDwellStatus(
   }
   return { atStation: false, dwellMs: 0 };
 }
+// A shared report is provisional until a newer accepted GPS fix arrives.
+export function activeCrewDeparture(r: Race) {
+  return r.status === "live" && r.fix && r.crewDeparture?.fixAt === r.fix.at
+    ? r.crewDeparture
+    : null;
+}
+export function reportCrewDeparture(
+  r: Race,
+  stationId: string,
+  fixAt: number,
+  now: number,
+): Race | null {
+  const dwell = stationDwellStatus(r, now);
+  if (
+    r.trackingPaused ||
+    activeCrewDeparture(r) ||
+    r.fix?.at !== fixAt ||
+    !dwell.atStation ||
+    dwell.station?.id !== stationId ||
+    dwell.arrivalAt === undefined ||
+    now < dwell.arrivalAt ||
+    now - dwell.arrivalAt >= 600000
+  )
+    return null;
+  return {
+    ...r,
+    crewDeparture: { stationId, at: now, fixAt },
+    revision: r.revision + 1,
+  };
+}
 export function calculateEta(
   r: Race,
   targetStationKm: number,
@@ -285,6 +316,10 @@ export function calculateEta(
     ? 0
     : intermediateStations.length * 10 * 60 * 1000;
 
+  const departure = activeCrewDeparture(r);
+  if (departure && dwell.station?.id === departure.stationId) {
+    return Math.round(departure.at + travelTimeMs + intermediateDwellMs);
+  }
   if (dwell.atStation) {
     const remainingDwellHere = useOverall
       ? 0

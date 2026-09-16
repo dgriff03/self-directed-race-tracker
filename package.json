@@ -25,7 +25,8 @@
     "test:storage": "node tests/storage.mjs",
     "test:sms": "npm run build:functions && node tests/sms.mjs",
     "test:slugs": "npm run build:functions && node tests/slugs.mjs",
-    "test:slug-browser": "node tests/slug-browser.mjs"
+    "test:slug-browser": "node tests/slug-browser.mjs",
+    "test:crew-departure": "node tests/crew-departure.mjs"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

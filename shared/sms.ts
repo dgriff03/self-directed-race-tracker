@@ -1,5 +1,6 @@
 import { raceReference } from "./race-reference.js";
 import {
+  activeCrewDeparture,
   calculateEta,
   completedDistance,
   elapsed,
@@ -64,6 +65,7 @@ export function smsUpdate(r: Race, now = Date.now()): string {
     if (r.feedOk === false)
       lines.push("Garmin feed unavailable; showing saved data.");
   }
+  if (activeCrewDeparture(r)) lines.push("Crew-reported departure; awaiting GPS confirmation.");
   if (r.fix) lines.push(`GPS recorded ${time(r.fix.at)}.`);
   lines.push("Text UPDATE for this race, or send another race link.");
   return lines.join("\n");

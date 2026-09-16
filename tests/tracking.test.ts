@@ -1291,3 +1291,25 @@ test('race references normalize slugs and URLs while reserving SMS commands', as
  r.journey={phase:'returning',peakKm:1,peakAt:1,positionKm:0,reverseCount:3,reverseAt:1,turnaroundKm:1};
  const v=journeyElevation(r)!;assert.ok(Math.abs(v.totalM-100)<1e-6);assert.equal(v.completedM,v.totalM);
  });
+
+test('shared crew departure is limited to the dwell window and yields to newer GPS', async()=>{
+ const {reportCrewDeparture,activeCrewDeparture}=await import('../shared/race');
+ const r=race(),at=r.startAt+600000,point=atDistance(r.route,r.distances,0.8);
+ r.status='live';r.progressKm=0.8;r.fix={lng:point[0],lat:point[1],at,km:0.8};r.previousFix={...r.fix,at:at-1000};r.splits=[{stationId:'aid',at:at-60000,estimated:true}];
+ const now=at+60000;
+ assert.equal(stationDwellStatus(r,now).station?.id,'aid');
+ const reported=reportCrewDeparture(r,'aid',at,now)!;assert.ok(reported);
+ assert.equal(reported.revision,r.revision+1);
+ const context={pace:{kmh:6,source:'rolling' as const},dwell:stationDwellStatus(r,now)};
+ assert.equal(calculateEta(r,2,'finish',now,context)!-calculateEta(reported,2,'finish',now,context)!,480000);
+ assert.equal(calculateEta(reported,2,'finish',now+60000,context),calculateEta(reported,2,'finish',now,context));
+ assert.equal(reportCrewDeparture(reported,'aid',at,now),null);
+ assert.equal(reportCrewDeparture(r,'aid',at,at+540000),null);
+ assert.equal(reportCrewDeparture(r,'aid',at-1,now),null);
+ assert.equal(reportCrewDeparture({...r,status:'complete'},'aid',at,now),null);
+ const stillHere=applyFixes(reported,[{...r.fix,at:now+1000}],now+1000);
+ assert.equal(activeCrewDeparture(stillHere),null);assert.equal(stationDwellStatus(stillHere,now+1000).atStation,true);
+ const moved=atDistance(r.route,r.distances,1.1);
+ const departed=applyFixes(reported,[{lng:moved[0],lat:moved[1],at:now+60000}],now+60000);
+ assert.equal(activeCrewDeparture(departed),null);assert.equal(stationDwellStatus(departed,now+60000).atStation,false);
+});

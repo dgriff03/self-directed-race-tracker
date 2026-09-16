@@ -102,6 +102,7 @@ export async function subscribe(
     "startAt",
     "actualStartAt",
     "startProgressKm",
+    "crewDeparture",
     "startLineFix",
     "route",
     "distances",

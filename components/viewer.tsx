@@ -14,9 +14,10 @@ import {
 import RaceMap from "./race-map";
 import { Checkbox } from "./ui/checkbox";
 import { loadRace, saveRace } from "../lib/offline";
-import { subscribe, normalize } from "../lib/firebase";
+import { api, subscribe, normalize } from "../lib/firebase";
 import { demoRace } from "../lib/demo";
 import {
+  activeCrewDeparture,
   completedDistance,
   raceStart,
   plannedDistance,
@@ -46,6 +47,8 @@ const time = (t: number) =>
   });
 export default function Viewer({ id }: { id: string }) {
   const demo = id === "demo";
+  const [reportingDeparture, setReportingDeparture] = useState(false);
+  const [departureError, setDepartureError] = useState("");
   const [smsCopied, setSmsCopied] = useState(false);
   const smsNumber = import.meta.env.VITE_SMS_NUMBER as string | undefined;
   const [race, setRace] = useState<Race | null>(null),
@@ -215,6 +218,7 @@ export default function Viewer({ id }: { id: string }) {
         s.km > race.progressKm &&
         !race.splits.some((p) => p.stationId === s.id),
     );
+  const departure = activeCrewDeparture(race);
   const nextEta = next
     ? calculateEta(race, next.km, next.id, now, { pace: etaBase!.pace, dwell })
     : null;
@@ -337,6 +341,66 @@ export default function Viewer({ id }: { id: string }) {
           mi.
         </div>
       )}
+      {!complete &&
+        (departure || (dwell.atStation && dwell.dwellMs < 600000)) && (
+          <section className="form-card" style={{ marginBottom: 16 }}>
+            {departure ? (
+              <p role="status">
+                Crew reported departure from{" "}
+                {race.stations.find((s) => s.id === departure.stationId)?.name}{" "}
+                at {time(departure.at)}. ETAs updated for everyone; awaiting GPS
+                confirmation.
+              </p>
+            ) : (
+              <>
+                <p>
+                  GPS last placed the runner at {dwell.station?.name}. Have you
+                  seen them leave?
+                </p>
+                <button
+                  className="button secondary"
+                  disabled={
+                    reportingDeparture ||
+                    !online ||
+                    !connected ||
+                    demo ||
+                    !!race.trackingPaused
+                  }
+                  onClick={async () => {
+                    setReportingDeparture(true);
+                    setDepartureError("");
+                    try {
+                      await api(`/races/${race.id}/depart`, "POST", {
+                        stationId: dwell.station!.id,
+                        fixAt: race.fix!.at,
+                      });
+                    } catch (e) {
+                      setDepartureError(
+                        e instanceof Error
+                          ? e.message
+                          : "Could not report departure.",
+                      );
+                    } finally {
+                      setReportingDeparture(false);
+                    }
+                  }}
+                >
+                  {reportingDeparture
+                    ? "Reporting…"
+                    : "Runner has left this aid"}
+                </button>
+                <p className="field-note">
+                  Updates everyone's ETAs and removes the remaining stop
+                  allowance. The next GPS fix replaces this report.{" "}
+                  {!online || !connected
+                    ? "Reconnect to report departure."
+                    : ""}
+                </p>
+              </>
+            )}
+            {departureError && <p role="alert">{departureError}</p>}
+          </section>
+        )}
       {!complete && next && (
         <section className="form-card" style={{ marginBottom: 16 }}>
           <strong>
@@ -462,12 +526,12 @@ export default function Viewer({ id }: { id: string }) {
           <span>
             {complete
               ? "AVERAGE PACE"
-              : dwell.atStation
+              : dwell.atStation && !departure
                 ? "CURRENT STATUS"
                 : "ROLLING PACE"}
           </span>
           <strong>
-            {dwell.atStation && !complete ? (
+            {dwell.atStation && !departure && !complete ? (
               "At aid station"
             ) : (
               <>
@@ -479,7 +543,7 @@ export default function Viewer({ id }: { id: string }) {
           <p>
             {complete
               ? "Based on confirmed progress"
-              : dwell.atStation
+              : dwell.atStation && !departure
                 ? `${dwell.station?.name ?? "Aid station"} · Overall: ${pacePerMile(overallSpeed)} min/mi`
                 : etaBase!.pace.source === "rolling"
                   ? `Recent 40 min · Overall: ${pacePerMile(overallSpeed)} min/mi`
@@ -568,7 +632,10 @@ export default function Viewer({ id }: { id: string }) {
               });
               const isNext = next?.id === s.id;
               const isDwell =
-                dwell.atStation && dwell.station?.id === s.id && !complete;
+                dwell.atStation &&
+                !departure &&
+                dwell.station?.id === s.id &&
+                !complete;
               return (
                 <div
                   key={s.id}
