@@ -1,3 +1,4 @@
+import { raceTime } from "./time.js";
 import { raceReference } from "./race-reference.js";
 import {
   activeCrewDeparture,
@@ -29,16 +30,8 @@ export function smsCommand(
     return { kind: "help" };
   }
 }
-const time = (at: number) =>
-  new Date(at).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-    timeZoneName: "short",
-  });
 export function smsUpdate(r: Race, now = Date.now()): string {
+  const time = (at: number) => raceTime(r, at);
   const lines = [r.name.slice(0, 80)];
   if (r.status === "complete") {
     lines.push(
@@ -65,7 +58,8 @@ export function smsUpdate(r: Race, now = Date.now()): string {
     if (r.feedOk === false)
       lines.push("Garmin feed unavailable; showing saved data.");
   }
-  if (activeCrewDeparture(r)) lines.push("Crew-reported departure; awaiting GPS confirmation.");
+  if (activeCrewDeparture(r))
+    lines.push("Crew-reported departure; awaiting GPS confirmation.");
   if (r.fix) lines.push(`GPS recorded ${time(r.fix.at)}.`);
   lines.push("Text UPDATE for this race, or send another race link.");
   return lines.join("\n");

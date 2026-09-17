@@ -1,3 +1,4 @@
+import { raceTime } from "../shared/time";
 import { readPublicRace } from "../lib/firebase";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Header } from "./viewer";
@@ -29,7 +30,7 @@ import {
   type Station,
   type Race,
 } from "../shared/race";
-const stamp = (n: number) => new Date(n).toLocaleString();
+
 const localDate = (n: number) =>
   new Date(n - new Date(n).getTimezoneOffset() * 60000)
     .toISOString()
@@ -76,6 +77,7 @@ export default function Replay() {
 
   const ds = useMemo(() => (course ? cumulative(course.route) : []), [course]);
   const total = ds.at(-1) ?? 0;
+  const stamp = (n: number) => raceTime({ route: course?.route ?? [] }, n);
   const initial = useMemo<Race | null>(
     () =>
       course && points.length
@@ -226,7 +228,7 @@ export default function Replay() {
         setCourse(parsed);
         setOutAndBack(false);
         setGpxName(file.name);
-        setStations([]);
+        setStations(parsed.stations ?? []);
         setCursor(lower);
       } else {
         const parsed = await parseReplayKml(text, controller!.signal);

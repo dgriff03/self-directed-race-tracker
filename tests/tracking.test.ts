@@ -1313,3 +1313,18 @@ test('shared crew departure is limited to the dwell window and yields to newer G
  const departed=applyFixes(reported,[{lng:moved[0],lat:moved[1],at:now+60000}],now+60000);
  assert.equal(activeCrewDeparture(departed),null);assert.equal(stationDwellStatus(departed,now+60000).atStation,false);
 });
+
+test("web and SMS times use the course start timezone and daylight saving", async () => {
+  const { raceTime, raceTimeZone } = await import("../shared/time");
+  const { smsUpdate } = await import("../shared/sms");
+  const r = race();
+  r.route = [[-105,40],[-105.01,40]];
+  r.startAt = Date.parse("2026-09-17T14:00:00Z");
+  assert.equal(raceTimeZone(r), "America/Denver");
+  assert.match(raceTime(r,r.startAt), /8:00 AM MDT/);
+  assert.match(smsUpdate(r), /8:00 AM MDT/);
+  assert.doesNotMatch(smsUpdate(r), /UTC/);
+  assert.match(raceTime(r,Date.parse("2026-12-17T14:00:00Z")), /7:00 AM MST/);
+  r.route = [[151.2,-33.86]];
+  assert.equal(raceTimeZone(r), "Australia/Sydney");
+});

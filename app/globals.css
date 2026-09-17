@@ -1083,3 +1083,27 @@ footer {
 
 .estimated-finish-notice { background: #fff3cd; border: 2px solid #b87817; color: #69410b; }
 .estimated-finish-notice strong { display: block; font-size: 1.15rem; margin-bottom: 6px; }
+
+/* Keep aid names and their ETA visible even in the narrow desktop sidebar. */
+.station-panel {
+  container-type: inline-size;
+}
+.station-row > div {
+  min-width: 0;
+}
+.station-time {
+  max-width: 15rem;
+}
+@container (max-width: 460px) {
+  .station-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .station-time {
+    grid-column: 2;
+    text-align: left;
+    max-width: none;
+  }
+  .station-time strong {
+    white-space: normal;
+  }
+}

@@ -1,4 +1,5 @@
-"use client";
+import { raceTime, raceTimeZone } from "../shared/time";
+("use client");
 import { useEffect, useMemo, useState } from "react";
 import {
   Route,
@@ -37,14 +38,6 @@ import {
   elevationProgress,
   type Race,
 } from "../shared/race";
-const time = (t: number) =>
-  new Date(t).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
 export default function Viewer({ id }: { id: string }) {
   const demo = id === "demo";
   const [reportingDeparture, setReportingDeparture] = useState(false);
@@ -199,6 +192,7 @@ export default function Viewer({ id }: { id: string }) {
         </section>
       </main>
     );
+  const time = (at: number) => raceTime(race, at);
   const total = race.distances.at(-1) ?? 0,
     percent = plannedDistance(race)
       ? (completedDistance(race) / plannedDistance(race)) * 100
@@ -265,6 +259,7 @@ export default function Viewer({ id }: { id: string }) {
             </span>
             <span>
               {new Date(race.startAt).toLocaleDateString([], {
+                timeZone: raceTimeZone(race),
                 month: "long",
                 day: "numeric",
                 year: "numeric",
@@ -319,9 +314,8 @@ export default function Viewer({ id }: { id: string }) {
       )}
       {scheduled && (
         <div className="notice">
-          Event starting at{" "}
-          {new Date(race.startAt).toLocaleString([], { timeZoneName: "short" })}
-          . Tracking can begin automatically up to one hour early.
+          Event starting at {time(race.startAt)}. Tracking can begin
+          automatically up to one hour early.
         </div>
       )}
       {!online && (

@@ -1,4 +1,5 @@
-"use client";
+import { raceTime } from "../shared/time";
+("use client");
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   stationSkipped,
@@ -301,7 +302,7 @@ export default function RaceMap({
             ? calculateEta(race, station.km, station.id, clockAt)
             : null);
         return eta
-          ? ` · ${split ? "Passed" : eta < clockAt ? "Likely at" : "ETA"} ${new Date(eta).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`
+          ? ` · ${split ? "Passed" : eta < clockAt ? "Likely at" : "ETA"} ${raceTime(race, eta)}`
           : "";
       };
       race.stations.forEach((s, i) => {

@@ -1,3 +1,4 @@
+import { raceTime } from "../shared/time";
 import { validSlug } from "../shared/race-reference";
 ("use client");
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -157,7 +158,7 @@ export default function Editor({ token }: { token?: string }) {
       const result = await api("/edit", "POST", { action: "testFeed" }, token);
       setDiagnostic(
         result.ok
-          ? `Feed reachable. ${result.pointCount} timestamped points${result.latestAt ? `; latest ${new Date(result.latestAt).toLocaleString()}` : "; no positions in the requested time range"}.`
+          ? `Feed reachable. ${result.pointCount} timestamped points${result.latestAt ? `; latest ${raceTime({ route }, result.latestAt)}` : "; no positions in the requested time range"}.`
           : result.message,
       );
     } catch (e) {
@@ -523,7 +524,7 @@ export default function Editor({ token }: { token?: string }) {
                     </p>
                     <small>
                       {health?.heartbeatAt
-                        ? `Health checked ${new Date(health.heartbeatAt).toLocaleString()}`
+                        ? `Health checked ${raceTime({ route }, health.heartbeatAt)}`
                         : "No health check yet"}
                     </small>
                     <p>
@@ -589,9 +590,33 @@ export default function Editor({ token }: { token?: string }) {
                           throw Error(
                             "Use the same route to add elevation data after tracking starts.",
                           );
+                        if (!locked) {
+                          const imported = parsed.stations ?? [];
+                          const merged = sameRoute
+                            ? [
+                                ...stations,
+                                ...imported.filter(
+                                  (w) =>
+                                    !stations.some(
+                                      (s) =>
+                                        s.name === w.name &&
+                                        Math.abs(s.km - w.km) < 0.01,
+                                    ),
+                                ),
+                              ]
+                            : imported;
+                          if (merged.length > 50)
+                            throw Error(
+                              "A race supports up to 50 aid stations. Remove extra stations before importing.",
+                            );
+                          setStations(merged.sort((a, b) => a.km - b.km));
+                          if (parsed.stations?.length)
+                            setMessage(
+                              `Imported ${parsed.stations.length} aid stations from GPX waypoints. Review their names and distances below.`,
+                            );
+                        }
                         setRoute(parsed.route);
                         setElevationsM(parsed.elevationsM);
-                        if (!sameRoute) setStations([]);
                         setFileName(file.name);
                         setError("");
                       } catch (e) {
@@ -623,8 +648,10 @@ export default function Editor({ token }: { token?: string }) {
                   <h2>Aid stations</h2>
                 </div>
                 <p className="field-note">
-                  Click the route to choose a distance, or enter it below. For
-                  loops, use the distance of that particular visit.
+                  GPX waypoints are imported automatically and snapped to the
+                  route. Review them below. Click the route to choose a
+                  distance, or enter it below. For loops, use the distance of
+                  that particular visit.
                 </p>
                 {outAndBack && (
                   <p className="field-note">
