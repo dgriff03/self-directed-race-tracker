@@ -20,14 +20,15 @@
     "test:replay": "node tests/replay-browser.mjs && node tests/replay-demo-browser.mjs",
     "test:outback": "node tests/outback-browser.mjs",
     "test:maps": "node tests/map-fallback-browser.mjs && node tests/tile-cache.mjs",
-    "test:browser": "npm run test:replay && npm run test:outback && npm run test:maps && npm run test:viewer && npm run test:gpx",
+    "test:browser": "npm run test:replay && npm run test:outback && npm run test:maps && npm run test:viewer && npm run test:gpx && npm run test:directions",
     "test:viewer": "node tests/viewer-feedback-browser.mjs",
     "test:storage": "node tests/storage.mjs",
     "test:sms": "npm run build:functions && node tests/sms.mjs",
     "test:slugs": "npm run build:functions && node tests/slugs.mjs",
     "test:slug-browser": "node tests/slug-browser.mjs",
     "test:crew-departure": "node tests/crew-departure.mjs",
-    "test:gpx": "node tests/gpx-waypoints-browser.mjs"
+    "test:gpx": "node tests/gpx-waypoints-browser.mjs",
+    "test:directions": "node tests/offline-directions-browser.mjs"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

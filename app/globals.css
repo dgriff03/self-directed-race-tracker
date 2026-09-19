@@ -1107,3 +1107,10 @@ footer {
     white-space: normal;
   }
 }
+
+.station-directions { margin: 8px 0; min-width: 0; }
+.directions-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.station-directions .button { min-height: 44px; padding: 8px 12px; white-space: normal; }
+.station-directions .gps-coordinates { display: block; width: 100%; max-width: 22rem; min-width: 0; margin: 8px 0; padding: 8px; font: 0.8rem monospace; user-select: text; -webkit-user-select: text; }
+.station-directions small, .coordinate-feedback { display: block; font-size: 0.75rem; line-height: 1.5; }
+.coordinate-feedback:empty { display: none; }

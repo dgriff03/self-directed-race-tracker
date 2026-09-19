@@ -1,3 +1,4 @@
+import StationDirections from "./station-directions";
 import { raceTime, raceTimeZone } from "../shared/time";
 ("use client");
 import { useEffect, useMemo, useState } from "react";
@@ -26,7 +27,6 @@ import {
   journeyMessage,
   stationSkipped,
   stationDistance,
-  atDistance,
   elapsed,
   speed,
   paceEstimate,
@@ -216,10 +216,6 @@ export default function Viewer({ id }: { id: string }) {
   const nextEta = next
     ? calculateEta(race, next.km, next.id, now, { pace: etaBase!.pace, dwell })
     : null;
-  const directions = (km: number) => {
-    const [lng, lat] = atDistance(race.route, race.distances, km);
-    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-  };
   const vert = journeyElevation(race);
   const complete = race.status === "complete",
     scheduled = !complete && !race.fix && now < race.startAt;
@@ -403,16 +399,12 @@ export default function Viewer({ id }: { id: string }) {
               ? `${nextEta < now ? "Likely at" : "ETA"} ${time(nextEta)}`
               : "ETA awaiting GPS pace"}
           </strong>
-          <p>
-            <a
-              className="button secondary"
-              href={directions(next.km)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Drive to {next.name}
-            </a>
-          </p>
+          <StationDirections
+            race={race}
+            station={next}
+            offline={!online}
+            prominent
+          />
           <small>
             Directions target the aid location. Check road access and parking
             before driving.
@@ -646,13 +638,11 @@ export default function Viewer({ id }: { id: string }) {
                   </span>
                   <div>
                     <h3>{s.name}</h3>
-                    <a
-                      href={directions(s.km)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Driving directions
-                    </a>
+                    <StationDirections
+                      race={race}
+                      station={s}
+                      offline={!online}
+                    />
                     <p>
                       {kmToMiles(stationDistance(race, s.km)).toFixed(1)} mi{" "}
                       {isDwell && (
