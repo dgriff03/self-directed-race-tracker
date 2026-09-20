@@ -517,7 +517,7 @@ export const pollGarmin = onSchedule(
                 now -
                   Math.max(
                     race.startAt,
-                    race.fix?.at ?? 0,
+                    race.latestLocation?.at ?? race.fix?.at ?? 0,
                     job.resumedAt ?? 0,
                   ) >
                 24 * 3600000

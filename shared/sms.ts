@@ -52,7 +52,7 @@ export function smsUpdate(r: Race, now = Date.now()): string {
     if (next) {
       const eta = calculateEta(r, next.km, next.id, now);
       lines.push(
-        `Next: ${next.name.slice(0, 60)}. ${eta ? `${eta < now ? "Likely at" : "ETA"} ${time(eta)}${eta < now ? " (awaiting GPS)" : ""}` : "ETA awaiting pace"}.`,
+        `Next: ${next.name.slice(0, 60)}. ${eta ? `${eta < now ? "Likely at" : "ETA"} ${time(eta)}${eta < now ? " (awaiting GPS)" : ""}` : r.offRoute ? "ETA paused — off route" : "ETA awaiting pace"}.`,
       );
     }
     if (r.feedOk === false)
@@ -60,7 +60,10 @@ export function smsUpdate(r: Race, now = Date.now()): string {
   }
   if (activeCrewDeparture(r))
     lines.push("Crew-reported departure; awaiting GPS confirmation.");
-  if (r.fix) lines.push(`GPS recorded ${time(r.fix.at)}.`);
+  if (r.offRoute)
+    lines.push("Off route. Progress held at last confirmed course position.");
+  const location = r.latestLocation ?? r.fix;
+  if (location) lines.push(`GPS recorded ${time(location.at)}.`);
   lines.push("Text UPDATE for this race, or send another race link.");
   return lines.join("\n");
 }

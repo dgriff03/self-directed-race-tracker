@@ -11,6 +11,7 @@ export function inferFinish(r: Race, now: number): Race {
     !r.fix ||
     !r.previousFix ||
     r.feedOk !== true ||
+    r.offRoute ||
     r.trackingPaused
   )
     return r;
@@ -46,7 +47,7 @@ export function inferFinish(r: Race, now: number): Race {
     finishSource: "estimated",
     finishInferredAt: now,
     progressKm: total,
-    ...(r.journey ? {journey: {...r.journey, positionKm: 0}} : {}),
+    ...(r.journey ? { journey: { ...r.journey, positionKm: 0 } } : {}),
     splits: [
       ...r.splits.filter((s) => s.stationId !== "finish"),
       { stationId: "finish", at: eta, estimated: true },

@@ -222,8 +222,10 @@ export default function Viewer({ id }: { id: string }) {
   const stale = !demo && (!race.heartbeatAt || now - race.heartbeatAt > 900000);
 
   const effectiveMoveSpeed = rolling > 0 ? rolling : overallSpeed;
-  const estimatedKm =
-    estimate && race.fix && !complete && !scheduled && overallSpeed > 0
+  const latestLocation = race.latestLocation ?? race.fix;
+  const estimatedKm = race.offRoute
+    ? undefined
+    : estimate && race.fix && !complete && !scheduled && overallSpeed > 0
       ? dwell.atStation
         ? race.progressKm
         : Math.min(
@@ -391,13 +393,27 @@ export default function Viewer({ id }: { id: string }) {
             {departureError && <p role="alert">{departureError}</p>}
           </section>
         )}
+      {!complete && race.offRoute && (
+        <section className="notice" role="status">
+          <strong>Off route</strong>
+          <p>
+            The map shows the latest GPS location
+            {latestLocation ? `, recorded ${time(latestLocation.at)}` : ""}. It
+            is away from the remaining planned course. Completed distance and
+            splits stay at the last confirmed route position; ETAs are paused
+            until the runner rejoins.
+          </p>
+        </section>
+      )}
       {!complete && next && (
         <section className="form-card" style={{ marginBottom: 16 }}>
           <strong>
             Next: {next.name} ·{" "}
             {nextEta
               ? `${nextEta < now ? "Likely at" : "ETA"} ${time(nextEta)}`
-              : "ETA awaiting GPS pace"}
+              : race.offRoute
+                ? "ETA paused · off route"
+                : "ETA awaiting GPS pace"}
           </strong>
           <StationDirections
             race={race}
@@ -558,7 +574,8 @@ export default function Viewer({ id }: { id: string }) {
         <div className="map-panel">
           <div className="panel-heading">
             <h2>
-              <Route size={18} /> On the course
+              <Route size={18} />{" "}
+              {race.offRoute ? "Off route" : "On the course"}
             </h2>
             <span className="muted">{Math.round(percent)}% complete</span>
           </div>
@@ -571,8 +588,8 @@ export default function Viewer({ id }: { id: string }) {
               Last location update received at{" "}
               {race.lastLocationReceivedAt
                 ? time(race.lastLocationReceivedAt)
-                : race.fix
-                  ? `Unknown receipt time; GPS recorded at ${time(race.fix.at)}`
+                : latestLocation
+                  ? `Unknown receipt time; GPS recorded at ${time(latestLocation!.at)}`
                   : "— awaiting first GPS position"}
             </p>
             {!complete && race.nextUpdateExpectedAt && (
@@ -687,7 +704,9 @@ export default function Viewer({ id }: { id: string }) {
                             ? "Not recorded"
                             : arrival && arrival < now
                               ? "Likely at · awaiting GPS"
-                              : "ETA"}
+                              : race.offRoute
+                                ? "ETA paused · off route"
+                                : "ETA"}
                     </span>
                   </div>
                 </div>

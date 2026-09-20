@@ -1328,3 +1328,39 @@ test("web and SMS times use the course start timezone and daylight saving", asyn
   r.route = [[151.2,-33.86]];
   assert.equal(raceTimeZone(r), "Australia/Sydney");
 });
+
+test("rolling and terrain pace exclude corroborated aid dwell, but not stops elsewhere", async () => {
+  const { aidDwellMs } = await import("../shared/aid-dwell");
+  const { terrainCalibration } = await import("../shared/terrain");
+  const r=race(), t=r.startAt;
+  r.elevationsM=r.route.map(()=>100);
+  const fix=(km:number,minute:number)=>{const [lng,lat]=atDistance(r.route,r.distances,km);return {lng,lat,km,at:t+minute*60000};};
+  r.track=[fix(0,0),fix(0.8,10),fix(0.8,20),fix(1.6,30)];
+  r.fix=r.track[3];r.previousFix=r.track[2];r.progressKm=1.6;
+  assert.equal(aidDwellMs(r,t,t+30*60000),10*60000);
+  assert.ok(Math.abs(paceEstimate(r).kmh-4.8)<0.001);
+  assert.ok(Math.abs(terrainCalibration(r,2)!.kmh-4.8)<0.001);
+  assert.equal(aidDwellMs(r,t+15*60000,t+30*60000),0); // no fabricated partial interval
+  r.stations=r.stations.filter(s=>s.id!=="aid");
+  assert.equal(aidDwellMs(r,t,t+30*60000),0);
+  assert.ok(Math.abs(paceEstimate(r).kmh-3.2)<0.001);
+});
+
+test("latest off-route GPS stays visible without changing splits, then rejoins normally", () => {
+  const r=race(),t=r.startAt;
+  let out=applyFixes(r,[{lng:0,lat:0,at:t},{lng:0.005,lat:0,at:t+600000}],t+600000);
+  const progress=out.progressKm, splits=structuredClone(out.splits);
+  out=applyFixes(out,[{lng:0.006,lat:0.01,at:t+1200000}],t+1200000);
+  assert.equal(out.latestLocation?.lat,0.01);assert.equal(out.offRoute,true);
+  assert.equal(out.progressKm,progress);assert.deepEqual(out.splits,splits);
+  assert.equal(calculateEta(out,1.5,"aid",t+1200000),null);
+  const held=applyFixes(out,[{lng:5,lat:5,at:t+999999999},{lng:0,lat:0,at:t-7200000}],t+1200000);
+  assert.deepEqual(held.latestLocation,out.latestLocation);
+  out=applyFixes(out,[{lng:0.009,lat:0,at:t+1800000}],t+1800000);
+  assert.equal(out.offRoute,false);assert.ok(out.progressKm>progress);
+  assert.equal(out.fix?.at,t+1800000);
+  // Returning to the beginning is a real location, but not forward race progress.
+  out=applyFixes(out,[{lng:0,lat:0,at:t+2400000}],t+2400000);
+  assert.equal(out.latestLocation?.lng,0);assert.equal(out.offRoute,true);
+  assert.ok(out.progressKm>progress);
+});

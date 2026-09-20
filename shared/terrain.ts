@@ -1,3 +1,4 @@
+import { aidDwellMs } from "./aid-dwell.js";
 import type { Race } from "./race.js";
 // Running cost polynomial from Minetti et al. (2002), doi:10.1152/japplphysiol.01177.2001.
 // Conservative downhill floor: elevation cannot describe footing or trail difficulty.
@@ -92,7 +93,7 @@ export function terrainCalibration(
     const first = recent[0],
       last = recent.at(-1)!;
     effort = terrainDistance(r, first.km!, last.km!);
-    duration = last.at - first.at;
+    duration = last.at - first.at - aidDwellMs(r, first.at, last.at);
   }
   if (effort < 0.02 || duration < 180000) {
     effort = overallEffort;

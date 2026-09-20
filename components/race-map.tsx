@@ -64,6 +64,8 @@ export default function RaceMap({
         race.stations,
         race.splits,
         race.fix,
+        race.latestLocation,
+        race.offRoute,
         race.status,
         race.crewDeparture,
         Math.floor(clockAt / 60000),
@@ -74,6 +76,8 @@ export default function RaceMap({
       race.stations,
       race.splits,
       race.fix,
+      race.latestLocation,
+      race.offRoute,
       race.status,
       race.crewDeparture,
       Math.floor(clockAt / 60000),
@@ -315,10 +319,13 @@ export default function RaceMap({
           s.id === "finish" ? "F" : String(i + 1),
         );
       });
-      if (race.fix && race.status !== "complete")
+      const location = race.latestLocation ?? race.fix;
+      if (location && race.status !== "complete")
         marker(
-          [race.fix.lng, race.fix.lat],
-          "Last known Garmin location",
+          [location.lng, location.lat],
+          race.offRoute
+            ? "Latest Garmin location · Off route"
+            : "Last known Garmin location",
           "runner",
           "",
         );
@@ -355,7 +362,12 @@ export default function RaceMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    if (race.status === "complete" || estimatedKm === undefined || !race.fix) {
+    if (
+      race.offRoute ||
+      race.status === "complete" ||
+      estimatedKm === undefined ||
+      !race.fix
+    ) {
       estimateRef.current?.remove();
       estimateRef.current = null;
       return;
@@ -381,7 +393,7 @@ export default function RaceMap({
     return () => {
       active = false;
     };
-  }, [ready, estimatedKm, routeKey, !!race.fix, race.status]);
+  }, [ready, estimatedKm, routeKey, !!race.fix, race.status, race.offRoute]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || previewKm === undefined) return;
@@ -407,6 +419,22 @@ export default function RaceMap({
   return (
     <div className="map-wrap">
       <div className="map" ref={element} aria-label="Race route map" />
+      {race.offRoute && race.latestLocation && race.status !== "complete" && (
+        <button
+          className="button secondary latest-location-button"
+          type="button"
+          onClick={() => {
+            const location = race.latestLocation!;
+            mapRef.current?.easeTo({
+              center: [location.lng, location.lat],
+              zoom: 13,
+              duration: 0,
+            });
+          }}
+        >
+          Show latest GPS location
+        </button>
+      )}
       {onPick && previewKm !== undefined && (
         <div className="map-pick-hint">
           {kmToMiles(previewKm).toFixed(2)} mi · Click or tap to set aid

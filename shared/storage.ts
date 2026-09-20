@@ -67,6 +67,7 @@ export function storedLive(r: Race): any {
   };
   for (const key of [
     "fix",
+    "latestLocation",
     "previousFix",
     "pendingFix",
     "startLineFix",

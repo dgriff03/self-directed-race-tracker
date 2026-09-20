@@ -1,3 +1,4 @@
+import { aidDwellMs } from "./aid-dwell.js";
 import { smoothedAscent } from "./ascent.js";
 import { terrainCalibration } from "./terrain.js";
 export type Coordinate = [number, number];
@@ -32,6 +33,8 @@ export type Race = {
   status: "scheduled" | "live" | "complete";
   progressKm: number;
   fix: Fix | null;
+  latestLocation?: Fix | null;
+  offRoute?: boolean;
   previousFix: Fix | null;
   pendingFix?: Fix | null;
   splits: Split[];
@@ -151,7 +154,8 @@ export function paceEstimate(
       const last = samples[samples.length - 1];
       const first =
         samples.find((p) => p.at >= last.at - windowMs) ?? samples[0];
-      const hours = (last.at - first.at) / 3600000;
+      const hours =
+        (last.at - first.at - aidDwellMs(r, first.at, last.at)) / 3600000;
       const km = first.km - last.km;
       if (hours >= 0.05 && km > 0.02)
         return { kmh: Math.min(25, km / hours), source: "rolling" };
@@ -175,7 +179,8 @@ export function paceEstimate(
     if (recent.length >= 2) {
       const oldest = recent[0];
       const newest = recent[recent.length - 1];
-      const deltaHours = (newest.at - oldest.at) / 3600000;
+      const deltaHours =
+        (newest.at - oldest.at - aidDwellMs(r, oldest.at, newest.at)) / 3600000;
       const deltaKm = (newest.km ?? r.progressKm) - (oldest.km ?? 0);
       if (deltaHours >= 3 / 60 && deltaKm >= 0) {
         return stabilize(deltaKm / deltaHours);
@@ -183,7 +188,11 @@ export function paceEstimate(
     }
   }
   if (r.previousFix && r.previousFix.km !== undefined) {
-    const deltaHours = (nowFix.at - r.previousFix.at) / 3600000;
+    const deltaHours =
+      (nowFix.at -
+        r.previousFix.at -
+        aidDwellMs(r, r.previousFix.at, nowFix.at)) /
+      3600000;
     const deltaKm = (nowFix.km ?? r.progressKm) - r.previousFix.km;
     if (deltaHours > 0 && deltaHours <= 45 / 60 && deltaKm >= 0) {
       return stabilize(deltaKm / deltaHours);
@@ -203,7 +212,7 @@ export function stationDwellStatus(
   dwellMs: number;
   arrivalAt?: number;
 } {
-  if (!r.fix || r.status !== "live") {
+  if (r.offRoute || !r.fix || r.status !== "live") {
     return { atStation: false, dwellMs: 0 };
   }
   for (const s of r.stations) {
@@ -239,7 +248,10 @@ export function stationDwellStatus(
 }
 // A shared report is provisional until a newer accepted GPS fix arrives.
 export function activeCrewDeparture(r: Race) {
-  return r.status === "live" && r.fix && r.crewDeparture?.fixAt === r.fix.at
+  return !r.offRoute &&
+    r.status === "live" &&
+    r.fix &&
+    r.crewDeparture?.fixAt === r.fix.at
     ? r.crewDeparture
     : null;
 }
@@ -277,7 +289,12 @@ export function calculateEta(
     pace: ReturnType<typeof paceEstimate>;
   },
 ): number | null {
-  if (r.status === "complete" || !r.fix || stationSkipped(r, targetStationId))
+  if (
+    r.offRoute ||
+    r.status === "complete" ||
+    !r.fix ||
+    stationSkipped(r, targetStationId)
+  )
     return null;
   if (targetStationKm <= r.progressKm) return null;
 
@@ -358,6 +375,17 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
   out.stations = stationVisits(out.stations, out.distances, out.outAndBack);
   if (out.status === "complete") return out;
   for (const fix of [...fixes].sort((a, b) => a.at - b.at)) {
+    if (
+      Number.isFinite(fix.lng) &&
+      Number.isFinite(fix.lat) &&
+      Math.abs(fix.lng) <= 180 &&
+      Math.abs(fix.lat) <= 90 &&
+      fix.at >= out.startAt - EARLY_START_MS &&
+      fix.at <= now + 120000 &&
+      fix.at > (out.latestLocation?.at ?? out.fix?.at ?? 0)
+    ) {
+      out.latestLocation = { lng: fix.lng, lat: fix.lat, at: fix.at };
+    }
     if (out.outAndBack) {
       applyOutAndBackFix(out, fix, now);
       if ((out as Race).status === "complete") break;
@@ -475,6 +503,16 @@ export function applyFixes(r: Race, fixes: Fix[], now = Date.now()): Race {
         out.splits.push({ stationId: "finish", at: fix.at, estimated: true });
       break;
     }
+  }
+  const latest = out.latestLocation;
+  if (latest) {
+    const match = project(
+      out.route,
+      out.distances,
+      [latest.lng, latest.lat],
+      out.outAndBack ? 0 : Math.max(0, out.progressKm - 0.1),
+    );
+    out.offRoute = latest.at > (out.fix?.at ?? 0) && match.offKm > 0.25;
   }
   return out;
 }

@@ -111,6 +111,8 @@ export async function subscribe(
     "status",
     "progressKm",
     "fix",
+    "latestLocation",
+    "offRoute",
     "previousFix",
     "splits",
     "heartbeatAt",
